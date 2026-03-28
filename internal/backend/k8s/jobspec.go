@@ -3,7 +3,7 @@
 // Each TES task becomes one K8s Job with:
 //   - An init container (conquest image) that downloads TES inputs from S3
 //   - A main container (user executor image) that runs the TES command
-//   - An emptyDir volume mounted at the executor workdir (default /work)
+//   - A workspace volume (emptyDir or PVC subpath) at the executor workdir
 //   - A shared tools volume for the conquest bootstrap binary
 //
 // After the main container exits, the reconciler picks up the terminal
@@ -45,10 +45,11 @@ type Config struct {
 	ServiceAccount    string // SA for task pods (empty = use namespace default)
 	StorageSecretName string
 	ImagePullSecrets  []string
+	Workspace         WorkspaceConfig
 }
 
 // buildJobSpec creates a K8s Job spec from a TES task.
-func buildJobSpec(task *domain.Task, cfg Config) (*batchv1.Job, error) {
+func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1.Job, error) {
 	// Parse the TES request from the stored payload.
 	var tesTask tes.Task
 	if err := json.Unmarshal(task.TaskRequestPayload, &tesTask); err != nil {
@@ -110,12 +111,42 @@ func buildJobSpec(task *domain.Task, cfg Config) (*batchv1.Job, error) {
 		envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
 	}
 
-	sharedBucketMount := "/" + strings.Trim(cfg.S3Bucket, "/")
+	// Determine workspace scope from TES tags.
+	scope := taskWorkspaceScope(tesTask.Tags)
+
+	// Compute mount path for workspace volume.
 	workspaceMount := taskWorkspaceMountPath(workdir, tesTask.Inputs, tesTask.Outputs)
-	workdirMounts := []corev1.VolumeMount{{Name: "workdir", MountPath: workspaceMount}}
+
+	// Build workspace volume + mount using strategy.
+	workdirVol, workdirMount := ws.TaskVolumes(task.Workspace, task.TESTaskID, workspaceMount, scope)
+
+	// Build the extra bucket mount if needed (existing behavior: mount at
+	// /<bucket> if inputs reference paths under /<bucket>).
+	sharedBucketMount := "/" + strings.Trim(cfg.S3Bucket, "/")
+	workdirMounts := []corev1.VolumeMount{workdirMount}
 	if sharedBucketMount != "/" && sharedBucketMount != workspaceMount {
 		workdirMounts = append(workdirMounts, corev1.VolumeMount{Name: "workdir", MountPath: sharedBucketMount})
 	}
+
+	// Build volumes list: workspace + stage manifest + tools.
+	volumes := []corev1.Volume{
+		workdirVol,
+		{
+			Name: "stage-manifest",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+		{
+			Name: "tools",
+			VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
+			},
+		},
+	}
+
+	// Build pod affinity for RWO co-location (nil for other modes).
+	affinity := ws.TaskAffinity(task.Workspace, task.RunID)
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -134,29 +165,11 @@ func buildJobSpec(task *domain.Task, cfg Config) (*batchv1.Job, error) {
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
 					ServiceAccountName: cfg.ServiceAccount,
+					SecurityContext:    podSecurityContextForWorkspace(task.Workspace),
 					ImagePullSecrets:   imagePullSecretRefs(cfg.ImagePullSecrets),
+					Affinity:           affinity,
 
-					// Volumes: emptyDir for workdir, stage manifest/logs, and tools (conquest binary).
-					Volumes: []corev1.Volume{
-						{
-							Name: "workdir",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-						{
-							Name: "stage-manifest",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-						{
-							Name: "tools",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-					},
+					Volumes: volumes,
 
 					// Init containers:
 					// 1. Copy conquest binary to shared tools volume.
@@ -223,6 +236,16 @@ func buildJobSpec(task *domain.Task, cfg Config) (*batchv1.Job, error) {
 	}
 
 	return job, nil
+}
+
+// taskWorkspaceScope reads the workspace scope from TES task tags.
+// Returns "shared" if the tag conquest_workspace_scope=shared is set,
+// "isolated" otherwise.
+func taskWorkspaceScope(tags map[string]string) string {
+	if tags != nil && tags["conquest_workspace_scope"] == "shared" {
+		return "shared"
+	}
+	return "isolated"
 }
 
 // buildResourceRequirements converts TES resources to K8s resource requirements.

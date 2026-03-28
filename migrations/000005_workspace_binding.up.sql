@@ -1,0 +1,11 @@
+BEGIN;
+
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS workspace_kind TEXT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS workspace_claim_name TEXT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS workspace_access_mode TEXT;
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_kind TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_claim_name TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_access_mode TEXT;
+
+COMMIT;

@@ -131,6 +131,14 @@ func run(log *slog.Logger) error {
 	// Controller.
 	runCtrl := controller.NewRunController(runStore, taskStore, eventStore, layout, adapterRegistry, log)
 
+	// Workspace config is shared between task and run backends.
+	wsCfg := k8sbackend.WorkspaceConfig{
+		Mode:         cfg.WorkspaceMode,
+		AccessMode:   cfg.WorkspaceAccessMode,
+		StorageClass: cfg.WorkspaceStorageClass,
+		Size:         cfg.WorkspaceSize,
+	}
+
 	// Try to create K8s backend (only works inside a K8s cluster).
 	var taskBackend *k8sbackend.Backend
 	var clientset kubernetes.Interface
@@ -152,6 +160,7 @@ func run(log *slog.Logger) error {
 			ServiceAccount:    cfg.ServiceAccount,
 			StorageSecretName: cfg.StorageSecretName,
 			ImagePullSecrets:  cfg.ImagePullSecrets,
+			Workspace:         wsCfg,
 		}
 		taskBackend = k8sbackend.NewBackend(clientset, backendCfg, log)
 		log.Info("k8s backend enabled",
@@ -170,6 +179,7 @@ func run(log *slog.Logger) error {
 			ImagePullSecrets:        cfg.ImagePullSecrets,
 			EphemeralStorageRequest: cfg.RunnerEphemeralStorageRequest,
 			EphemeralStorageLimit:   cfg.RunnerEphemeralStorageLimit,
+			Workspace:               wsCfg,
 		}
 		runBackend = k8sbackend.NewRunBackend(clientset, runBackendCfg, log)
 		log.Info("run backend enabled",
@@ -221,6 +231,7 @@ func run(log *slog.Logger) error {
 
 	if runBackend != nil {
 		runRec := reconciler.NewRunReconciler(runStore, eventStore, runBackend, recCfg, log)
+		runRec.SetWorkspaceCleaner(runBackend.WorkspaceStrategy())
 		go runRec.Run(appCtx)
 	}
 

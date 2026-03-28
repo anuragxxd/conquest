@@ -190,6 +190,9 @@ func (s *runStoreStub) SetBackendRef(_ context.Context, _ string, ref string) er
 }
 
 func (s *runStoreStub) SetBackendState(context.Context, string, json.RawMessage) error { return nil }
+func (s *runStoreStub) SetWorkspaceBinding(context.Context, string, *domain.WorkspaceBinding) error {
+	return nil
+}
 
 type taskStoreStub struct{}
 

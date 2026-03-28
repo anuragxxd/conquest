@@ -45,6 +45,14 @@ type Config struct {
 	TaskMinCPUCores     int
 	TaskMinRAMGb        float64
 	TaskMinDiskGb       float64
+
+	// Workspace configuration — controls how runner and task pods share a
+	// filesystem. Default is "emptydir" (current behavior). Set to "pvc" to
+	// create a per-run PersistentVolumeClaim for shared workspace.
+	WorkspaceMode         string // "emptydir" or "pvc"
+	WorkspaceAccessMode   string // "RWX" or "RWO" (only used when mode is "pvc")
+	WorkspaceStorageClass string // optional; empty uses cluster default
+	WorkspaceSize         string // e.g. "10Gi" (only used when mode is "pvc")
 }
 
 func Load() (*Config, error) {
@@ -88,6 +96,11 @@ func Load() (*Config, error) {
 		TaskMinCPUCores:     envIntOr("CONQUEST_TASK_MIN_CPU_CORES", 0),
 		TaskMinRAMGb:        envFloat64Or("CONQUEST_TASK_MIN_RAM_GB", 0),
 		TaskMinDiskGb:       envFloat64Or("CONQUEST_TASK_MIN_DISK_GB", 0),
+
+		WorkspaceMode:         envOr("CONQUEST_WORKSPACE_MODE", "emptydir"),
+		WorkspaceAccessMode:   envOr("CONQUEST_WORKSPACE_ACCESS_MODE", "RWX"),
+		WorkspaceStorageClass: strings.TrimSpace(os.Getenv("CONQUEST_WORKSPACE_STORAGE_CLASS")),
+		WorkspaceSize:         envOr("CONQUEST_WORKSPACE_SIZE", "10Gi"),
 	}
 
 	if c.PostgresDSN == "" {
@@ -116,6 +129,25 @@ func Load() (*Config, error) {
 	}
 	if c.RunnerEphemeralStorageLimit == "" {
 		return nil, fmt.Errorf("CONQUEST_RUNNER_EPHEMERAL_STORAGE_LIMIT is required")
+	}
+
+	// Workspace validation.
+	switch c.WorkspaceMode {
+	case "emptydir", "pvc":
+		// valid
+	default:
+		return nil, fmt.Errorf("CONQUEST_WORKSPACE_MODE must be 'emptydir' or 'pvc', got %q", c.WorkspaceMode)
+	}
+	if c.WorkspaceMode == "pvc" {
+		switch c.WorkspaceAccessMode {
+		case "RWX", "RWO":
+			// valid
+		default:
+			return nil, fmt.Errorf("CONQUEST_WORKSPACE_ACCESS_MODE must be 'RWX' or 'RWO', got %q", c.WorkspaceAccessMode)
+		}
+		if c.WorkspaceSize == "" {
+			return nil, fmt.Errorf("CONQUEST_WORKSPACE_SIZE is required when workspace mode is 'pvc'")
+		}
 	}
 
 	return c, nil

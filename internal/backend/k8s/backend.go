@@ -18,9 +18,10 @@ import (
 
 // Backend implements backend.TaskBackend using Kubernetes Jobs.
 type Backend struct {
-	client kubernetes.Interface
-	cfg    Config
-	log    *slog.Logger
+	client    kubernetes.Interface
+	cfg       Config
+	workspace WorkspaceStrategy
+	log       *slog.Logger
 }
 
 // Ensure Backend satisfies the interface.
@@ -28,16 +29,18 @@ var _ backend.TaskBackend = (*Backend)(nil)
 
 // NewBackend creates a K8s backend.
 func NewBackend(client kubernetes.Interface, cfg Config, log *slog.Logger) *Backend {
+	ws := NewWorkspaceStrategy(client, cfg.Workspace, cfg.Namespace, log)
 	return &Backend{
-		client: client,
-		cfg:    cfg,
-		log:    log,
+		client:    client,
+		cfg:       cfg,
+		workspace: ws,
+		log:       log,
 	}
 }
 
 // Submit creates a K8s Job for the given task.
 func (b *Backend) Submit(ctx context.Context, task *domain.Task) error {
-	job, err := buildJobSpec(task, b.cfg)
+	job, err := buildJobSpec(task, b.cfg, b.workspace)
 	if err != nil {
 		return fmt.Errorf("build job spec: %w", err)
 	}

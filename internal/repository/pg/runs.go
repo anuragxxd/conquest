@@ -27,6 +27,7 @@ func NewRunStore(pool *pgxpool.Pool) *RunStore {
 }
 
 func (s *RunStore) Create(ctx context.Context, run *domain.Run) error {
+	wsKind, wsClaim, wsAccess := flattenWorkspaceBinding(run.Workspace)
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO runs (
 			run_id, workflow_type, workflow_type_version,
@@ -34,14 +35,16 @@ func (s *RunStore) Create(ctx context.Context, run *domain.Run) error {
 			state, request_payload, resolved_workflow_ref,
 			output_prefix, layout_version, run_root_uri,
 			backend_ref, backend_state,
-			created_at, updated_at, started_at, finished_at, error_summary
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			created_at, updated_at, started_at, finished_at, error_summary,
+			workspace_kind, workspace_claim_name, workspace_access_mode
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 		run.RunID, run.WorkflowType, run.WorkflowTypeVersion,
 		run.WorkflowEngine, run.WorkflowEngineVersion,
 		string(run.State), run.RequestPayload, run.ResolvedWorkflowRef,
 		run.OutputPrefix, run.LayoutVersion, run.RunRootURI,
 		run.BackendRef, run.BackendState,
 		run.CreatedAt, run.UpdatedAt, run.StartedAt, run.FinishedAt, run.ErrorSummary,
+		wsKind, wsClaim, wsAccess,
 	)
 	return err
 }
@@ -52,13 +55,15 @@ const runColumns = `run_id, workflow_type, workflow_type_version,
 	state, request_payload, resolved_workflow_ref,
 	output_prefix, layout_version, run_root_uri,
 	backend_ref, backend_state,
-	created_at, updated_at, started_at, finished_at, error_summary`
+	created_at, updated_at, started_at, finished_at, error_summary,
+	workspace_kind, workspace_claim_name, workspace_access_mode`
 
 // scanRunFields scans a row into a Run using the canonical column order.
 func scanRunFields(s interface{ Scan(dest ...any) error }) (*domain.Run, error) {
 	r := &domain.Run{}
 	var stateStr string
 	var payload, backendState []byte
+	var wsKind, wsClaim, wsAccess *string
 	err := s.Scan(
 		&r.RunID, &r.WorkflowType, &r.WorkflowTypeVersion,
 		&r.WorkflowEngine, &r.WorkflowEngineVersion,
@@ -66,6 +71,7 @@ func scanRunFields(s interface{ Scan(dest ...any) error }) (*domain.Run, error) 
 		&r.OutputPrefix, &r.LayoutVersion, &r.RunRootURI,
 		&r.BackendRef, &backendState,
 		&r.CreatedAt, &r.UpdatedAt, &r.StartedAt, &r.FinishedAt, &r.ErrorSummary,
+		&wsKind, &wsClaim, &wsAccess,
 	)
 	if err != nil {
 		return nil, err
@@ -77,6 +83,7 @@ func scanRunFields(s interface{ Scan(dest ...any) error }) (*domain.Run, error) 
 	if backendState != nil {
 		r.BackendState = json.RawMessage(backendState)
 	}
+	r.Workspace = inflateWorkspaceBinding(wsKind, wsClaim, wsAccess)
 	return r, nil
 }
 
@@ -264,6 +271,48 @@ func (s *RunStore) CountByState(ctx context.Context) (map[domain.State]int, erro
 		counts[domain.State(stateStr)] = count
 	}
 	return counts, nil
+}
+
+func (s *RunStore) SetWorkspaceBinding(ctx context.Context, runID string, binding *domain.WorkspaceBinding) error {
+	wsKind, wsClaim, wsAccess := flattenWorkspaceBinding(binding)
+	_, err := s.pool.Exec(ctx, `
+		UPDATE runs SET workspace_kind = $1, workspace_claim_name = $2, workspace_access_mode = $3, updated_at = NOW()
+		WHERE run_id = $4`,
+		wsKind, wsClaim, wsAccess, runID)
+	return err
+}
+
+// flattenWorkspaceBinding converts a WorkspaceBinding pointer to nullable SQL column values.
+func flattenWorkspaceBinding(w *domain.WorkspaceBinding) (kind, claimName, accessMode *string) {
+	if w == nil {
+		return nil, nil, nil
+	}
+	k := string(w.Kind)
+	kind = &k
+	if w.ClaimName != "" {
+		claimName = &w.ClaimName
+	}
+	if w.AccessMode != "" {
+		a := string(w.AccessMode)
+		accessMode = &a
+	}
+	return kind, claimName, accessMode
+}
+
+// inflateWorkspaceBinding reconstructs a WorkspaceBinding from nullable SQL column values.
+// Returns nil if kind is NULL (emptydir runs before the migration).
+func inflateWorkspaceBinding(kind, claimName, accessMode *string) *domain.WorkspaceBinding {
+	if kind == nil || *kind == "" || *kind == string(domain.WorkspaceKindNone) {
+		return nil
+	}
+	w := &domain.WorkspaceBinding{Kind: domain.WorkspaceKind(*kind)}
+	if claimName != nil {
+		w.ClaimName = *claimName
+	}
+	if accessMode != nil {
+		w.AccessMode = domain.WorkspaceAccessMode(*accessMode)
+	}
+	return w
 }
 
 func parseCursor(token string) (unixNano int64, runID string, err error) {

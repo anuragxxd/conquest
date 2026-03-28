@@ -23,6 +23,14 @@ conquest:
   runnerEphemeralStorageRequest: 20Gi
   runnerEphemeralStorageLimit: 40Gi
 
+  # Workspace configuration — controls how runner and task pods share a
+  # filesystem. Set mode to "pvc" to create per-run PVCs for shared workspace.
+  workspace:
+    mode: "emptydir"      # "emptydir" or "pvc"
+    accessMode: "RWX"     # "RWX" or "RWO" (only used when mode is "pvc")
+    storageClass: ""      # optional; empty uses cluster default
+    size: "10Gi"          # PVC size (only used when mode is "pvc")
+
   # Optional per-version runner image overrides keyed by resolved Nextflow
   # version, e.g. {"25.04.3": "harbor.../conquest-runner:nf-25.04.3"}.
   nextflowRunnerImages: {}

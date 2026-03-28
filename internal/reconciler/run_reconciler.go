@@ -11,14 +11,22 @@ import (
 	"github.com/anuragxxd/conquest/internal/repository"
 )
 
+// WorkspaceCleaner is the subset of the workspace strategy interface needed
+// by the reconciler for run cleanup. This avoids importing the k8s package
+// directly, keeping the reconciler backend-agnostic.
+type WorkspaceCleaner interface {
+	Cleanup(ctx context.Context, binding *domain.WorkspaceBinding) error
+}
+
 // RunReconciler periodically polls active runs and syncs their state
 // from the runner backend (K8s Jobs).
 type RunReconciler struct {
-	runs    repository.RunStore
-	events  repository.EventStore
-	backend backend.RunBackend
-	cfg     Config
-	log     *slog.Logger
+	runs      repository.RunStore
+	events    repository.EventStore
+	backend   backend.RunBackend
+	workspace WorkspaceCleaner // nil-safe; no-op if not set
+	cfg       Config
+	log       *slog.Logger
 }
 
 // NewRunReconciler creates a RunReconciler.
@@ -36,6 +44,12 @@ func NewRunReconciler(
 		cfg:     cfg,
 		log:     log,
 	}
+}
+
+// SetWorkspaceCleaner configures the workspace cleanup strategy.
+// Must be called before Run() if workspace cleanup is desired.
+func (r *RunReconciler) SetWorkspaceCleaner(wc WorkspaceCleaner) {
+	r.workspace = wc
 }
 
 // Run starts the run reconciliation loop. Blocks until ctx is cancelled.
@@ -156,6 +170,37 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 	if err := r.events.Append(ctx, event); err != nil {
 		r.log.Error("failed to append run state change event",
 			"run_id", run.RunID,
+			"err", err,
+		)
+	}
+
+	// Cleanup workspace PVC when run enters a terminal state.
+	if targetState.IsTerminal() {
+		r.cleanupWorkspace(ctx, run)
+	}
+}
+
+// cleanupWorkspace deletes the per-run workspace PVC if one was provisioned.
+// Failures are logged but do not block the terminal state transition.
+// Kubernetes PVC protection ensures the PVC deletion is deferred until all
+// pods have unmounted.
+func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
+	if r.workspace == nil {
+		return
+	}
+	if run.Workspace == nil || !run.Workspace.IsPVC() {
+		return
+	}
+
+	r.log.Info("cleaning up workspace PVC",
+		"run_id", run.RunID,
+		"claim_name", run.Workspace.ClaimName,
+	)
+
+	if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
+		r.log.Error("failed to cleanup workspace PVC",
+			"run_id", run.RunID,
+			"claim_name", run.Workspace.ClaimName,
 			"err", err,
 		)
 	}

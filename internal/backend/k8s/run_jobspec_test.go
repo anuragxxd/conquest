@@ -7,6 +7,11 @@ import (
 	"github.com/anuragxxd/conquest/internal/domain"
 )
 
+// emptyDirWS returns the default emptydir workspace strategy for tests.
+func emptyDirWS() WorkspaceStrategy {
+	return &emptyDirWorkspace{}
+}
+
 func TestBuildRunnerJobSpec_UsesProvidedRunnerSpec(t *testing.T) {
 	run := domain.NewRun("NFL", "DSL2", "nextflow", "24.10.4", nil, "", "v1", "")
 
@@ -25,7 +30,7 @@ func TestBuildRunnerJobSpec_UsesProvidedRunnerSpec(t *testing.T) {
 			{Name: "CONQUEST_WORKFLOW_PARAMS", Value: `{"hello":"world"}`},
 			{Name: "NXF_PLUGINS_ALLOWED", Value: "nf-ga4gh,nf-amazon"},
 		},
-	})
+	}, emptyDirWS(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +86,7 @@ func TestBuildRunnerJobSpec_UsesProvidedRunnerSpec(t *testing.T) {
 func TestBuildRunnerJobSpec_RequiresImage(t *testing.T) {
 	run := domain.NewRun("NFL", "DSL2", "nextflow", "24.10.4", nil, "", "v1", "")
 
-	_, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{Command: []string{"/usr/local/bin/conquest"}})
+	_, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{Command: []string{"/usr/local/bin/conquest"}}, emptyDirWS(), nil)
 	if err == nil {
 		t.Fatal("expected error for missing runner image")
 	}
@@ -94,7 +99,7 @@ func TestBuildRunnerJobSpec_OmitsNextflowHomeForSnakemake(t *testing.T) {
 		Image:   "example.com/conquest-snakemake-runner:latest",
 		Command: []string{"/usr/local/bin/conquest"},
 		Args:    []string{"runner", "snakemake"},
-	})
+	}, emptyDirWS(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,6 +107,84 @@ func TestBuildRunnerJobSpec_OmitsNextflowHomeForSnakemake(t *testing.T) {
 	for _, mount := range job.Spec.Template.Spec.Containers[0].VolumeMounts {
 		if mount.MountPath == "/.nextflow" {
 			t.Fatal("snakemake runner should not mount /.nextflow")
+		}
+	}
+}
+
+func TestBuildRunnerJobSpec_PVCMountsWorkspace(t *testing.T) {
+	run := domain.NewRun("SMK", "9.17.3", "snakemake", "9.17.3", nil, "", "v1", "")
+
+	binding := &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindPVC,
+		ClaimName:  "conquest-workspace-test",
+		AccessMode: domain.WorkspaceAccessModeRWX,
+	}
+	ws := &pvcWorkspaceRWX{}
+
+	job, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{
+		Image:   "example.com/conquest-snakemake-runner:latest",
+		Command: []string{"/usr/local/bin/conquest"},
+		Args:    []string{"runner", "snakemake"},
+	}, ws, binding)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that /workspace is PVC-backed with subPath: shared.
+	container := job.Spec.Template.Spec.Containers[0]
+	var workspaceMount *string
+	for _, mount := range container.VolumeMounts {
+		if mount.MountPath == "/workspace" {
+			sp := mount.SubPath
+			workspaceMount = &sp
+		}
+	}
+	if workspaceMount == nil {
+		t.Fatal("runner should mount /workspace")
+	}
+	if *workspaceMount != "shared" {
+		t.Fatalf("workspace subPath = %q, want 'shared'", *workspaceMount)
+	}
+
+	// Check /tmp is still emptyDir.
+	foundTmp := false
+	for _, vol := range job.Spec.Template.Spec.Volumes {
+		if vol.Name == "tmp" && vol.EmptyDir != nil {
+			foundTmp = true
+		}
+	}
+	if !foundTmp {
+		t.Fatal("/tmp should remain emptyDir")
+	}
+
+	// Check CONQUEST_SHARED_WORKSPACE env var.
+	foundSharedFlag := false
+	for _, env := range container.Env {
+		if env.Name == "CONQUEST_SHARED_WORKSPACE" && env.Value == "true" {
+			foundSharedFlag = true
+		}
+	}
+	if !foundSharedFlag {
+		t.Fatal("PVC mode should inject CONQUEST_SHARED_WORKSPACE=true")
+	}
+}
+
+func TestBuildRunnerJobSpec_EmptyDirNoSharedWorkspaceEnv(t *testing.T) {
+	run := domain.NewRun("SMK", "9.17.3", "snakemake", "9.17.3", nil, "", "v1", "")
+
+	job, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{
+		Image:   "example.com/conquest-snakemake-runner:latest",
+		Command: []string{"/usr/local/bin/conquest"},
+		Args:    []string{"runner", "snakemake"},
+	}, emptyDirWS(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	container := job.Spec.Template.Spec.Containers[0]
+	for _, env := range container.Env {
+		if env.Name == "CONQUEST_SHARED_WORKSPACE" {
+			t.Fatal("emptydir mode should not inject CONQUEST_SHARED_WORKSPACE")
 		}
 	}
 }

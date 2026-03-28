@@ -26,6 +26,7 @@ type RunnerSpec struct {
 
 type RunSubmission struct {
 	BackendRef string
+	Workspace  *domain.WorkspaceBinding // nil for emptydir mode
 }
 
 // TaskBackend is the interface that execution backends must implement.

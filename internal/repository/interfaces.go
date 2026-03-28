@@ -36,6 +36,7 @@ type RunStore interface {
 	ListActiveRuns(ctx context.Context, limit int) ([]*domain.Run, error)
 	SetBackendRef(ctx context.Context, runID string, ref string) error
 	SetBackendState(ctx context.Context, runID string, state json.RawMessage) error
+	SetWorkspaceBinding(ctx context.Context, runID string, binding *domain.WorkspaceBinding) error
 }
 
 // TaskStore persists and queries TES tasks.

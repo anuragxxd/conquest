@@ -17,9 +17,10 @@ import (
 
 // RunBackend implements backend.RunBackend using Kubernetes Jobs.
 type RunBackend struct {
-	client kubernetes.Interface
-	cfg    RunConfig
-	log    *slog.Logger
+	client    kubernetes.Interface
+	cfg       RunConfig
+	workspace WorkspaceStrategy
+	log       *slog.Logger
 }
 
 // RunConfig holds configuration for the runner K8s backend.
@@ -30,24 +31,50 @@ type RunConfig struct {
 	ImagePullSecrets        []string
 	EphemeralStorageRequest string
 	EphemeralStorageLimit   string
+	Workspace               WorkspaceConfig
 }
 
 var _ backend.RunBackend = (*RunBackend)(nil)
 
 // NewRunBackend creates a new run-level K8s backend.
 func NewRunBackend(client kubernetes.Interface, cfg RunConfig, log *slog.Logger) *RunBackend {
-	return &RunBackend{client: client, cfg: cfg, log: log}
+	ws := NewWorkspaceStrategy(client, cfg.Workspace, cfg.Namespace, log)
+	return &RunBackend{client: client, cfg: cfg, workspace: ws, log: log}
 }
 
-// SubmitRun creates a K8s Job for the Nextflow runner.
+// SubmitRun creates a workspace PVC (if configured), then a K8s Job for the
+// runner. If the Job fails to create after PVC provisioning, the PVC is
+// cleaned up best-effort.
 func (b *RunBackend) SubmitRun(ctx context.Context, run *domain.Run, spec *backend.RunnerSpec) (*backend.RunSubmission, error) {
-	job, err := buildRunnerJobSpec(run, b.cfg, spec)
+	// 1. Provision workspace (no-op for emptydir).
+	binding, err := b.workspace.Provision(ctx, run.RunID)
 	if err != nil {
+		return nil, fmt.Errorf("provision workspace: %w", err)
+	}
+
+	// 2. Build runner Job spec with workspace awareness.
+	job, err := buildRunnerJobSpec(run, b.cfg, spec, b.workspace, binding)
+	if err != nil {
+		// Best-effort cleanup of the PVC we just created.
+		if cleanupErr := b.workspace.Cleanup(ctx, binding); cleanupErr != nil {
+			b.log.Error("failed to cleanup workspace after jobspec build failure",
+				"run_id", run.RunID,
+				"err", cleanupErr,
+			)
+		}
 		return nil, fmt.Errorf("build runner job spec: %w", err)
 	}
 
+	// 3. Create the K8s Job.
 	created, err := b.client.BatchV1().Jobs(b.cfg.Namespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
+		// Best-effort cleanup of the PVC we just created.
+		if cleanupErr := b.workspace.Cleanup(ctx, binding); cleanupErr != nil {
+			b.log.Error("failed to cleanup workspace after job creation failure",
+				"run_id", run.RunID,
+				"err", cleanupErr,
+			)
+		}
 		return nil, fmt.Errorf("create runner k8s job: %w", err)
 	}
 
@@ -55,8 +82,12 @@ func (b *RunBackend) SubmitRun(ctx context.Context, run *domain.Run, spec *backe
 		"run_id", run.RunID,
 		"job_name", created.Name,
 		"namespace", b.cfg.Namespace,
+		"workspace_mode", b.cfg.Workspace.Mode,
 	)
-	return &backend.RunSubmission{BackendRef: created.Name}, nil
+	return &backend.RunSubmission{
+		BackendRef: created.Name,
+		Workspace:  binding,
+	}, nil
 }
 
 // CancelRun deletes the K8s Job for the runner.
@@ -101,6 +132,12 @@ func (b *RunBackend) RefreshRun(ctx context.Context, run *domain.Run) (*backend.
 	}
 
 	return b.mapRunnerJobToStatus(ctx, job)
+}
+
+// WorkspaceStrategy returns the workspace strategy for use by the reconciler
+// during cleanup.
+func (b *RunBackend) WorkspaceStrategy() WorkspaceStrategy {
+	return b.workspace
 }
 
 func (b *RunBackend) mapRunnerJobToStatus(ctx context.Context, job *batchv1.Job) (*backend.BackendStatus, error) {

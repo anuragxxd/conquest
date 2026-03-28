@@ -65,8 +65,22 @@ class Localization:
 
 class Executor(RemoteExecutor):
     def __post_init__(self):
-        self.task_root = Path("/work")
-        self.task_workflow_root = self.task_root / "workflow"
+        # Detect shared-workspace mode. The backend injects this env var when
+        # workspace mode is "pvc" (either RWX or RWO).
+        self.shared_workspace = (
+            os.environ.get("CONQUEST_SHARED_WORKSPACE") == "true"
+        )
+
+        if self.shared_workspace:
+            # In shared mode, task absolute paths align with the runner
+            # checkout so upstream outputs are visible at the same paths.
+            self.task_root = Path("/workspace")
+            self.task_workflow_root = self.task_root / "workflow"
+        else:
+            # Emptydir mode — existing behavior preserved exactly.
+            self.task_root = Path("/work")
+            self.task_workflow_root = self.task_root / "workflow"
+
         self.workflow_root = Path(
             os.environ.get("CONQUEST_WORKFLOW_ROOT", os.getcwd())
         ).resolve()
@@ -141,7 +155,12 @@ class Executor(RemoteExecutor):
                 continue
             if task.state == "COMPLETE":
                 try:
-                    self._localize_outputs(job_info)
+                    if not self.shared_workspace:
+                        # In emptydir mode, localize outputs from S3 back to
+                        # local workspace so downstream tasks can see them.
+                        self._localize_outputs(job_info)
+                    # In shared-workspace mode, outputs already exist locally
+                    # on the shared PVC — skip localization.
                 except Exception as err:
                     self.report_job_error(
                         job_info,
@@ -177,18 +196,36 @@ class Executor(RemoteExecutor):
 
     def _build_task(self, job: JobExecutorInterface):
         native = self._can_run_natively(job)
-        inputs = [
-            tes.models.Input(
-                url=self.bundle_uri,
-                path=str(self.task_workflow_root),
-                type="DIRECTORY",
-            )
-        ]
+
+        # In shared-workspace mode, skip the bundle input — the runner
+        # checkout is already on the shared PVC at /workspace/workflow.
+        if self.shared_workspace:
+            inputs = []
+        else:
+            inputs = [
+                tes.models.Input(
+                    url=self.bundle_uri,
+                    path=str(self.task_workflow_root),
+                    type="DIRECTORY",
+                )
+            ]
+
         inputs.extend(self._build_additional_inputs(job))
 
         outputs, localizations = self._build_outputs(job)
         image = self._task_image_for_job(job, native)
         command = self._command_for_job(job, native)
+
+        tags = {
+            "conquest_run_id": self.run_id,
+            "conquest_mode": "native-shell" if native else "compat-nested",
+            "conquest_job_id": str(job.jobid),
+        }
+
+        # In shared-workspace mode, set the tag so the backend mounts
+        # the shared PVC subtree instead of an isolated per-task subpath.
+        if self.shared_workspace:
+            tags["conquest_workspace_scope"] = "shared"
 
         task = tes.Task(
             name=job.format_wildcards(self.jobname),
@@ -207,11 +244,7 @@ class Executor(RemoteExecutor):
             inputs=inputs,
             outputs=outputs,
             resources=self._resources(job),
-            tags={
-                "conquest_run_id": self.run_id,
-                "conquest_mode": "native-shell" if native else "compat-nested",
-                "conquest_job_id": str(job.jobid),
-            },
+            tags=tags,
         )
 
         return task, {
@@ -292,6 +325,12 @@ class Executor(RemoteExecutor):
 
             local_path = Path(os.path.abspath(str(iofile)))
             if self._is_within_workflow_root(local_path):
+                if self.shared_workspace:
+                    # In shared-workspace mode, skip uploading local inputs
+                    # that are inside the workflow root — they are already
+                    # visible on the shared PVC. Only upload storage-backed
+                    # inputs (handled above).
+                    continue
                 if not self._is_source_path(local_path):
                     task_path = self._task_path_from_local_path(local_path)
                     input_type = (

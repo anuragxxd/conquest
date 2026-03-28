@@ -33,6 +33,7 @@ type Run struct {
 	StartedAt             *time.Time      `json:"started_at,omitempty"`
 	FinishedAt            *time.Time      `json:"finished_at,omitempty"`
 	ErrorSummary          string          `json:"error_summary,omitempty"`
+	Workspace             *WorkspaceBinding `json:"workspace,omitempty"`
 }
 
 // NewRun creates a Run in QUEUED state with a fresh UUIDv7 ID.

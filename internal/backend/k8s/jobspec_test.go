@@ -36,7 +36,7 @@ func TestBuildJobSpec_MountsSharedBucketPathAndUsesToolsBinary(t *testing.T) {
 		S3Bucket:      "conquest",
 		S3Endpoint:    "http://minio:9000",
 		S3Region:      "us-east-1",
-	})
+	}, emptyDirWS())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBuildJobSpec_MountsCommonWorkspaceForNestedWorkdir(t *testing.T) {
 		S3Bucket:      "conquest",
 		S3Endpoint:    "http://minio:9000",
 		S3Region:      "us-east-1",
-	})
+	}, emptyDirWS())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestBuildJobSpec_SetsEphemeralStorageFromTESDisk(t *testing.T) {
 		S3Bucket:      "conquest",
 		S3Endpoint:    "http://minio:9000",
 		S3Region:      "us-east-1",
-	})
+	}, emptyDirWS())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestBuildJobSpec_NormalizesExecutorImageRef(t *testing.T) {
 		S3Bucket:      "conquest",
 		S3Endpoint:    "http://minio:9000",
 		S3Region:      "us-east-1",
-	})
+	}, emptyDirWS())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -214,8 +214,166 @@ func TestBuildJobSpec_RejectsUnsupportedExecutorImageScheme(t *testing.T) {
 		S3Bucket:      "conquest",
 		S3Endpoint:    "http://minio:9000",
 		S3Region:      "us-east-1",
-	})
+	}, emptyDirWS())
 	if err == nil {
 		t.Fatal("expected unsupported image scheme to be rejected")
+	}
+}
+
+// --------------------------------------------------------------------------
+// PVC workspace tests
+// --------------------------------------------------------------------------
+
+func TestBuildJobSpec_PVCIsolatedTaskMountsSubpath(t *testing.T) {
+	tesPayload := json.RawMessage(`{
+		"name": "test-task",
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/work"}]
+	}`)
+
+	task := domain.NewTask("run-123")
+	task.TESTaskID = "tes-abc"
+	task.TaskRequestPayload = tesPayload
+	task.Workspace = &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindPVC,
+		ClaimName:  "conquest-workspace-run-123",
+		AccessMode: domain.WorkspaceAccessModeRWX,
+	}
+
+	ws := &pvcWorkspaceRWX{}
+	job, err := buildJobSpec(task, Config{
+		Namespace:     "services",
+		ConquestImage: "example.com/conquest:latest",
+		S3Bucket:      "conquest",
+		S3Endpoint:    "http://minio:9000",
+		S3Region:      "us-east-1",
+	}, ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Isolated task (default) should use subPath: tasks/<taskID>.
+	executor := job.Spec.Template.Spec.Containers[0]
+	for _, mount := range executor.VolumeMounts {
+		if mount.Name == "workdir" && mount.MountPath == "/work" {
+			if mount.SubPath != "tasks/tes-abc" {
+				t.Fatalf("task subPath = %q, want 'tasks/tes-abc'", mount.SubPath)
+			}
+			return
+		}
+	}
+	t.Fatal("executor should have workdir mount at /work")
+}
+
+func TestBuildJobSpec_PVCSharedTaskMountsSharedSubpath(t *testing.T) {
+	tesPayload := json.RawMessage(`{
+		"name": "test-task",
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/work"}],
+		"tags": {"conquest_workspace_scope": "shared", "conquest_run_id": "run-123"}
+	}`)
+
+	task := domain.NewTask("run-123")
+	task.TESTaskID = "tes-shared"
+	task.TaskRequestPayload = tesPayload
+	task.Workspace = &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindPVC,
+		ClaimName:  "conquest-workspace-run-123",
+		AccessMode: domain.WorkspaceAccessModeRWX,
+	}
+
+	ws := &pvcWorkspaceRWX{}
+	job, err := buildJobSpec(task, Config{
+		Namespace:     "services",
+		ConquestImage: "example.com/conquest:latest",
+		S3Bucket:      "conquest",
+		S3Endpoint:    "http://minio:9000",
+		S3Region:      "us-east-1",
+	}, ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Shared-scope task should use subPath: shared mounted at /workspace.
+	executor := job.Spec.Template.Spec.Containers[0]
+	for _, mount := range executor.VolumeMounts {
+		if mount.Name == "workdir" && mount.SubPath == "shared" {
+			if mount.MountPath != "/workspace" {
+				t.Fatalf("shared task mountPath = %q, want '/workspace'", mount.MountPath)
+			}
+			return
+		}
+	}
+	t.Fatal("executor should have workdir mount with subPath=shared")
+}
+
+func TestBuildJobSpec_RWOTaskHasPodAffinity(t *testing.T) {
+	tesPayload := json.RawMessage(`{
+		"name": "test-task",
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/work"}]
+	}`)
+
+	task := domain.NewTask("run-123")
+	task.TESTaskID = "tes-rwo"
+	task.TaskRequestPayload = tesPayload
+	task.Workspace = &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindPVC,
+		ClaimName:  "conquest-workspace-run-123",
+		AccessMode: domain.WorkspaceAccessModeRWO,
+	}
+
+	ws := &pvcWorkspaceRWO{}
+	job, err := buildJobSpec(task, Config{
+		Namespace:     "services",
+		ConquestImage: "example.com/conquest:latest",
+		S3Bucket:      "conquest",
+		S3Endpoint:    "http://minio:9000",
+		S3Region:      "us-east-1",
+	}, ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	affinity := job.Spec.Template.Spec.Affinity
+	if affinity == nil || affinity.PodAffinity == nil {
+		t.Fatal("RWO task should have pod affinity")
+	}
+	terms := affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if len(terms) == 0 {
+		t.Fatal("RWO task should have required affinity terms")
+	}
+	labels := terms[0].LabelSelector.MatchLabels
+	if labels[LabelRunID] != "run-123" {
+		t.Fatalf("affinity run-id = %q, want 'run-123'", labels[LabelRunID])
+	}
+	if labels[LabelJobType] != "runner" {
+		t.Fatalf("affinity job-type = %q, want 'runner'", labels[LabelJobType])
+	}
+	if terms[0].TopologyKey != "kubernetes.io/hostname" {
+		t.Fatalf("topology key = %q", terms[0].TopologyKey)
+	}
+}
+
+func TestBuildJobSpec_EmptyDirTaskHasNoAffinity(t *testing.T) {
+	tesPayload := json.RawMessage(`{
+		"name": "test-task",
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/work"}]
+	}`)
+
+	task := domain.NewTask("run-123")
+	task.TESTaskID = "tes-noaff"
+	task.TaskRequestPayload = tesPayload
+
+	job, err := buildJobSpec(task, Config{
+		Namespace:     "services",
+		ConquestImage: "example.com/conquest:latest",
+		S3Bucket:      "conquest",
+		S3Endpoint:    "http://minio:9000",
+		S3Region:      "us-east-1",
+	}, emptyDirWS())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if job.Spec.Template.Spec.Affinity != nil {
+		t.Fatal("emptydir task should have no affinity")
 	}
 }

@@ -176,3 +176,13 @@ spec:
             - name: CONQUEST_NEXTFLOW_RUNNER_IMAGES
               value: {{ toJson .Values.conquest.nextflowRunnerImages | quote }}
             {{- end }}
+            - name: CONQUEST_WORKSPACE_MODE
+              value: {{ .Values.conquest.workspace.mode | quote }}
+            - name: CONQUEST_WORKSPACE_ACCESS_MODE
+              value: {{ .Values.conquest.workspace.accessMode | quote }}
+            {{- if .Values.conquest.workspace.storageClass }}
+            - name: CONQUEST_WORKSPACE_STORAGE_CLASS
+              value: {{ .Values.conquest.workspace.storageClass | quote }}
+            {{- end }}
+            - name: CONQUEST_WORKSPACE_SIZE
+              value: {{ .Values.conquest.workspace.size | quote }}

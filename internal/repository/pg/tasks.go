@@ -25,20 +25,23 @@ func NewTaskStore(pool *pgxpool.Pool) *TaskStore {
 }
 
 func (s *TaskStore) Create(ctx context.Context, task *domain.Task) error {
+	wsKind, wsClaim, wsAccess := flattenWorkspaceBinding(task.Workspace)
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO tasks (
 			task_id, run_id, engine_task_name, tes_task_id,
 			state, resources, task_request_payload, backend_ref, backend_state,
 			output_logs,
 			created_at, updated_at, started_at, finished_at,
-			log_location, exit_code, attempt
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+			log_location, exit_code, attempt,
+			workspace_kind, workspace_claim_name, workspace_access_mode
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		task.TaskID, task.RunID, task.EngineTaskName, task.TESTaskID,
 		string(task.State), task.Resources, task.TaskRequestPayload,
 		task.BackendRef, task.BackendState,
 		task.OutputLogs,
 		task.CreatedAt, task.UpdatedAt, task.StartedAt, task.FinishedAt,
 		task.LogLocation, task.ExitCode, task.Attempt,
+		wsKind, wsClaim, wsAccess,
 	)
 	return err
 }
@@ -48,7 +51,8 @@ const taskColumns = `task_id, run_id, engine_task_name, tes_task_id,
 	state, resources, task_request_payload, backend_ref, backend_state,
 	output_logs,
 	created_at, updated_at, started_at, finished_at,
-	log_location, exit_code, attempt`
+	log_location, exit_code, attempt,
+	workspace_kind, workspace_claim_name, workspace_access_mode`
 
 func (s *TaskStore) Get(ctx context.Context, taskID string) (*domain.Task, error) {
 	return s.scanTask(ctx,
@@ -272,12 +276,14 @@ func scanTaskFields(s scannable) (*domain.Task, error) {
 	t := &domain.Task{}
 	var stateStr string
 	var resources, requestPayload, backendState, outputLogs []byte
+	var wsKind, wsClaim, wsAccess *string
 	err := s.Scan(
 		&t.TaskID, &t.RunID, &t.EngineTaskName, &t.TESTaskID,
 		&stateStr, &resources, &requestPayload, &t.BackendRef, &backendState,
 		&outputLogs,
 		&t.CreatedAt, &t.UpdatedAt, &t.StartedAt, &t.FinishedAt,
 		&t.LogLocation, &t.ExitCode, &t.Attempt,
+		&wsKind, &wsClaim, &wsAccess,
 	)
 	if err != nil {
 		return nil, err
@@ -295,6 +301,7 @@ func scanTaskFields(s scannable) (*domain.Task, error) {
 	if outputLogs != nil {
 		t.OutputLogs = json.RawMessage(outputLogs)
 	}
+	t.Workspace = inflateWorkspaceBinding(wsKind, wsClaim, wsAccess)
 	return t, nil
 }
 

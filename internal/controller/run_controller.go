@@ -190,6 +190,14 @@ func (c *RunController) SubmitRun(ctx context.Context, req *RunRequest) (*domain
 			run.State = domain.StateSystemError
 			return run, nil
 		}
+		// Persist workspace binding if the backend provisioned one.
+		if submission.Workspace != nil {
+			if err := c.runs.SetWorkspaceBinding(ctx, run.RunID, submission.Workspace); err != nil {
+				c.log.Error("failed to persist workspace binding", "run_id", run.RunID, "err", err)
+				// Non-fatal: the run can still proceed, but cleanup may be impaired.
+			}
+			run.Workspace = submission.Workspace
+		}
 		if err := c.persistSubmittedRun(ctx, run, submission.BackendRef); err != nil {
 			c.log.Error("failed to persist submitted run state", "run_id", run.RunID, "backend_ref", submission.BackendRef, "err", err)
 			if cancelErr := c.runBackend.CancelRun(context.Background(), &domain.Run{RunID: run.RunID, BackendRef: submission.BackendRef}); cancelErr != nil {

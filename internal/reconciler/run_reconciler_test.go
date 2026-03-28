@@ -108,6 +108,9 @@ func (s *runStoreRecorder) SetBackendRef(context.Context, string, string) error 
 func (s *runStoreRecorder) SetBackendState(context.Context, string, json.RawMessage) error {
 	return nil
 }
+func (s *runStoreRecorder) SetWorkspaceBinding(context.Context, string, *domain.WorkspaceBinding) error {
+	return nil
+}
 
 type runEventStoreRecorder struct {
 	events []*domain.Event

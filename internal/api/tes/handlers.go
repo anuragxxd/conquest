@@ -87,18 +87,18 @@ func (h *Handler) CreateTaskForRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the run exists and is not terminal.
-	runState, err := h.runs.GetStatus(r.Context(), runID)
+	// Load the full run to check state and copy workspace binding.
+	run, err := h.runs.Get(r.Context(), runID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "run not found")
 		return
 	}
-	if runState.IsTerminal() {
+	if run.State.IsTerminal() {
 		writeError(w, http.StatusConflict, "run is in terminal state")
 		return
 	}
 
-	h.createTaskWithRunID(w, r, runID)
+	h.createTaskWithRunID(w, r, runID, run.Workspace)
 }
 
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +121,7 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 	// For standalone TES usage (no WES run), create a stub run so the FK
 	// constraint on tasks.run_id is satisfied.
+	var workspace *domain.WorkspaceBinding
 	if runID == "" {
 		stubRun := domain.NewRun(
 			"TES",        // workflow_type
@@ -137,14 +138,20 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		runID = stubRun.RunID
+	} else {
+		// Load the run to inherit workspace binding.
+		run, err := h.runs.Get(r.Context(), runID)
+		if err == nil {
+			workspace = run.Workspace
+		}
 	}
 
-	h.createAndSubmitTask(w, r, &req, runID)
+	h.createAndSubmitTask(w, r, &req, runID, workspace)
 }
 
 // createTaskWithRunID is the shared implementation for both public and
 // internal task creation. The runID is already validated.
-func (h *Handler) createTaskWithRunID(w http.ResponseWriter, r *http.Request, runID string) {
+func (h *Handler) createTaskWithRunID(w http.ResponseWriter, r *http.Request, runID string, workspace *domain.WorkspaceBinding) {
 	var req Task
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -156,11 +163,11 @@ func (h *Handler) createTaskWithRunID(w http.ResponseWriter, r *http.Request, ru
 		return
 	}
 
-	h.createAndSubmitTask(w, r, &req, runID)
+	h.createAndSubmitTask(w, r, &req, runID, workspace)
 }
 
 // createAndSubmitTask persists and submits a TES task.
-func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, req *Task, runID string) {
+func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, req *Task, runID string, workspace *domain.WorkspaceBinding) {
 	// Apply platform policy: normalize image refs, apply resource
 	// defaults/floors/ceilings, and validate before touching K8s.
 	if h.policy != nil {
@@ -180,6 +187,7 @@ func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, re
 	task.TESTaskID = task.TaskID
 	task.EngineTaskName = req.Name
 	task.TaskRequestPayload = requestPayload
+	task.Workspace = workspace // inherit from run (nil for emptydir)
 
 	if req.Resources != nil {
 		resJSON, _ := json.Marshal(req.Resources)

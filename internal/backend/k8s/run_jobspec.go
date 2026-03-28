@@ -14,7 +14,13 @@ import (
 
 const LabelJobType = "conquest.io/job-type"
 
-func buildRunnerJobSpec(run *domain.Run, cfg RunConfig, spec *backend.RunnerSpec) (*batchv1.Job, error) {
+func buildRunnerJobSpec(
+	run *domain.Run,
+	cfg RunConfig,
+	spec *backend.RunnerSpec,
+	ws WorkspaceStrategy,
+	binding *domain.WorkspaceBinding,
+) (*batchv1.Job, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("runner spec is required")
 	}
@@ -38,17 +44,27 @@ func buildRunnerJobSpec(run *domain.Run, cfg RunConfig, spec *backend.RunnerSpec
 		LabelManaged: "conquest",
 	}
 
-	envVars := make([]corev1.EnvVar, 0, len(spec.Env)+2)
+	// Build env vars: spec env + storage secrets + workspace env.
+	envVars := make([]corev1.EnvVar, 0, len(spec.Env)+4)
 	for _, env := range spec.Env {
 		envVars = append(envVars, corev1.EnvVar{Name: env.Name, Value: env.Value})
 	}
 	envVars = append(envVars, awsSecretEnvVars(cfg.StorageSecretName)...)
 
+	// Inject workspace capability flag for PVC modes (Phase 1b).
+	if wsEnv := ws.RunnerEnv(); len(wsEnv) > 0 {
+		envVars = append(envVars, wsEnv...)
+	}
+
+	// Build volumes and mounts. /workspace comes from the workspace strategy;
+	// /tmp and /.nextflow (Nextflow only) are always emptyDir.
+	workspaceVol, workspaceMount := ws.RunnerVolumes(binding)
 	volumes := []corev1.Volume{
-		{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		workspaceVol,
 		{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
-	volumeMounts := []corev1.VolumeMount{{Name: "workspace", MountPath: "/workspace"}, {Name: "tmp", MountPath: "/tmp"}}
+	volumeMounts := []corev1.VolumeMount{workspaceMount, {Name: "tmp", MountPath: "/tmp"}}
+
 	if run.WorkflowEngine == "nextflow" {
 		volumes = append(volumes, corev1.Volume{Name: "engine-home", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{Name: "engine-home", MountPath: "/.nextflow"})
@@ -78,6 +94,7 @@ func buildRunnerJobSpec(run *domain.Run, cfg RunConfig, spec *backend.RunnerSpec
 				Spec: corev1.PodSpec{
 					RestartPolicy:      corev1.RestartPolicyNever,
 					ServiceAccountName: cfg.ServiceAccount,
+					SecurityContext:    podSecurityContextForWorkspace(binding),
 					ImagePullSecrets:   imagePullSecretRefs(cfg.ImagePullSecrets),
 					Volumes:            volumes,
 					Containers: []corev1.Container{

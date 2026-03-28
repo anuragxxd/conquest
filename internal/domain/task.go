@@ -31,6 +31,7 @@ type Task struct {
 	LogLocation         string          `json:"log_location,omitempty"` // S3 URI to task log
 	ExitCode            *int32          `json:"exit_code,omitempty"`    // from TES executor log, not .exitcode file
 	Attempt             int32           `json:"attempt"`                // 0-based retry counter
+	Workspace           *WorkspaceBinding `json:"workspace,omitempty"`
 }
 
 // NewTask creates a Task in QUEUED state with a fresh UUIDv7 ID.
