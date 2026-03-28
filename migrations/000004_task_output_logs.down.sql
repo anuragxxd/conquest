@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE tasks DROP COLUMN IF EXISTS output_logs;
+COMMIT;

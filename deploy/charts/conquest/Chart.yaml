@@ -1,0 +1,6 @@
+apiVersion: v2
+name: conquest
+description: Workflow execution platform — WES control plane + TES backend
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

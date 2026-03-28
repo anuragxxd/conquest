@@ -1,0 +1,4 @@
+BEGIN;
+ALTER TABLE tasks DROP COLUMN IF EXISTS backend_state;
+ALTER TABLE tasks DROP COLUMN IF EXISTS task_request_payload;
+COMMIT;

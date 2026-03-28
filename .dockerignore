@@ -1,0 +1,12 @@
+**/.git
+**/.gitignore
+**/.env
+**/README.md
+**/NEXT_PHASE.md
+**/TECHDEBT.md
+**/Makefile
+**/docs/
+**/*_test.go
+**/testdata/
+**/.vscode
+**/.idea

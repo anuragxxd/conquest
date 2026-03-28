@@ -1,0 +1,106 @@
+conquest:
+  appname: conquest
+
+  image:
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest
+    tag: latest
+    pullPolicy: Always
+
+  runnerImage:
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-runner
+    tag: latest
+
+  snakemakeRunnerImage:
+    repository: ""
+    tag: ""
+
+  snakemakeTaskImage:
+    repository: ""
+    tag: ""
+
+  snakemakeDefaultJobs: 32
+  snakemakeDefaultDiskMB: 8192
+  runnerEphemeralStorageRequest: 20Gi
+  runnerEphemeralStorageLimit: 40Gi
+
+  # Optional per-version runner image overrides keyed by resolved Nextflow
+  # version, e.g. {"25.04.3": "harbor.../conquest-runner:nf-25.04.3"}.
+  nextflowRunnerImages: {}
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  # Override only if runner Jobs must call the API through a non-standard
+  # in-cluster address. The chart otherwise derives the service DNS name.
+  internalBaseURLOverride: ""
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  replicaCount: 1
+
+  env:
+    CONQUEST_HTTP_ADDR: ":8080"
+    CONQUEST_S3_BUCKET: "conquest"
+    CONQUEST_S3_ENDPOINT: "http://minio.platform.svc.cluster.local:9000"
+    CONQUEST_S3_REGION: "us-east-1"
+    CONQUEST_K8S_NAMESPACE: "services"
+    CONQUEST_LAYOUT_VERSION: "v1"
+    CONQUEST_SERVICE_ACCOUNT: "conquest"
+    # CONQUEST_IMAGE is set automatically from the deployment image in the template.
+    # Runner image for Nextflow execution Jobs.
+    # CONQUEST_RUNNER_IMAGE is set automatically in the template.
+    # Optional version-specific Nextflow runner image overrides are injected via
+    # CONQUEST_NEXTFLOW_RUNNER_IMAGES when conquest.nextflowRunnerImages is non-empty.
+    # CONQUEST_SNAKEMAKE_RUNNER_IMAGE and CONQUEST_SNAKEMAKE_TASK_IMAGE are set
+    # automatically in the template when configured.
+
+  serviceAccount:
+    create: true
+    name: conquest
+
+  migration:
+    image:
+      repository: migrate/migrate
+      tag: v4.17.0
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "$(DATABASE_URL)"
+      - "up"
+
+# Secrets references — matches manually created resources in the cluster.
+secrets:
+  postgres:
+    name: conquest-db-secret
+  storage:
+    name: storage-secrets
+
+global:
+  imagePullSecrets:
+    - harbor

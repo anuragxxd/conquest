@@ -1,0 +1,19 @@
+# sqlc configuration — wired up for later phases when we add query files.
+# Run: sqlc generate
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "queries/"
+    schema: "migrations/"
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "ga4gh_state"
+            go_type: "github.com/anuragxxd/conquest/internal/domain.State"
+          - db_type: "timestamptz"
+            go_type: "time.Time"

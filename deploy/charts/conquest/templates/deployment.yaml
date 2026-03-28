@@ -1,0 +1,178 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "conquest.fullname" . }}
+  labels:
+    {{- include "conquest.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.conquest.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "conquest.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "conquest.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range .Values.global.imagePullSecrets }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "conquest.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.conquest.podSecurityContext | nindent 8 }}
+
+      initContainers:
+        # Database migration — uses the conquest image which has both
+        # /migrations and /usr/local/bin/migrate baked in.
+        - name: migrate
+          image: "{{ .Values.conquest.image.repository }}:{{ .Values.conquest.image.tag }}"
+          imagePullPolicy: {{ .Values.conquest.image.pullPolicy }}
+          command: ["/usr/local/bin/migrate"]
+          args:
+            - "-path"
+            - "/migrations"
+            - "-database"
+            - "$(DATABASE_URL)"
+            - "up"
+          env:
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: port
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: dbname
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)?sslmode=disable"
+          securityContext:
+            {{- toYaml .Values.conquest.containerSecurityContext | nindent 12 }}
+
+      containers:
+        - name: {{ include "conquest.fullname" . }}
+          image: "{{ .Values.conquest.image.repository }}:{{ .Values.conquest.image.tag }}"
+          imagePullPolicy: {{ .Values.conquest.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.conquest.service.targetPort }}
+              protocol: TCP
+          securityContext:
+            {{- toYaml .Values.conquest.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.conquest.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          env:
+            {{- range $key, $value := .Values.conquest.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: CONQUEST_INTERNAL_BASE_URL
+              value: {{ include "conquest.internalBaseURL" . | quote }}
+            - name: DATABASE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: host
+            - name: DATABASE_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: port
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: username
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: password
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.postgres.name }}
+                  key: dbname
+            - name: CONQUEST_POSTGRES_DSN
+              value: "postgres://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST):$(DATABASE_PORT)/$(DATABASE_NAME)?sslmode=disable"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.storage.name }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.storage.name }}
+                  key: AWS_SECRET_ACCESS_KEY
+            # Used by the K8s backend for init container image in task Jobs.
+            - name: CONQUEST_IMAGE
+              value: "{{ .Values.conquest.image.repository }}:{{ .Values.conquest.image.tag }}"
+            # Used by the run backend for Nextflow runner Jobs.
+            - name: CONQUEST_RUNNER_IMAGE
+              value: "{{ .Values.conquest.runnerImage.repository }}:{{ .Values.conquest.runnerImage.tag }}"
+            {{- if .Values.conquest.snakemakeRunnerImage.repository }}
+            - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGE
+              value: "{{ .Values.conquest.snakemakeRunnerImage.repository }}:{{ .Values.conquest.snakemakeRunnerImage.tag }}"
+            {{- end }}
+            {{- if .Values.conquest.snakemakeTaskImage.repository }}
+            - name: CONQUEST_SNAKEMAKE_TASK_IMAGE
+              value: "{{ .Values.conquest.snakemakeTaskImage.repository }}:{{ .Values.conquest.snakemakeTaskImage.tag }}"
+            {{- end }}
+            - name: CONQUEST_SNAKEMAKE_DEFAULT_JOBS
+              value: {{ .Values.conquest.snakemakeDefaultJobs | quote }}
+            - name: CONQUEST_SNAKEMAKE_DEFAULT_DISK_MB
+              value: {{ .Values.conquest.snakemakeDefaultDiskMB | quote }}
+            - name: CONQUEST_RUNNER_EPHEMERAL_STORAGE_REQUEST
+              value: {{ .Values.conquest.runnerEphemeralStorageRequest | quote }}
+            - name: CONQUEST_RUNNER_EPHEMERAL_STORAGE_LIMIT
+              value: {{ .Values.conquest.runnerEphemeralStorageLimit | quote }}
+            - name: CONQUEST_STORAGE_SECRET_NAME
+              value: {{ .Values.secrets.storage.name | quote }}
+            {{- if .Values.global.imagePullSecrets }}
+            - name: CONQUEST_IMAGE_PULL_SECRETS
+              value: {{ join "," .Values.global.imagePullSecrets | quote }}
+            {{- end }}
+            {{- if .Values.conquest.nextflowRunnerImages }}
+            - name: CONQUEST_NEXTFLOW_RUNNER_IMAGES
+              value: {{ toJson .Values.conquest.nextflowRunnerImages | quote }}
+            {{- end }}

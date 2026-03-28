@@ -1,0 +1,35 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "conquest.fullname" . }}
+  labels:
+    {{- include "conquest.labels" . | nindent 4 }}
+rules:
+  # Job management — create, monitor, and delete task Jobs.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Pod monitoring — watch pod status for state mapping, read logs.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Pod logs — read executor container logs for TES FULL view.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "conquest.fullname" . }}
+  labels:
+    {{- include "conquest.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "conquest.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "conquest.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
