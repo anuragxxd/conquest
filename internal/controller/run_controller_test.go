@@ -31,7 +31,7 @@ func TestSubmitRun_UsesAdapterAndPersistsSubmission(t *testing.T) {
 			RequestPayload:        json.RawMessage(`{"workflow_url":"https://github.com/org/repo"}`),
 			ResolvedWorkflowRef:   "https://github.com/org/repo@abc",
 			RunnerSpec: backend.RunnerSpec{
-				Image:   "example.com/conquest-runner:nf-24.10.4",
+				Image:   "example.com/conquest-nf-24.10.4-runner:latest",
 				Command: []string{"/usr/local/bin/conquest"},
 				Args:    []string{"runner", "nextflow"},
 			},
@@ -63,7 +63,7 @@ func TestSubmitRun_UsesAdapterAndPersistsSubmission(t *testing.T) {
 	if len(runs.stateUpdates) != 1 || runs.stateUpdates[0].to != domain.StateInitializing {
 		t.Fatalf("state updates = %+v", runs.stateUpdates)
 	}
-	if runBackend.spec == nil || runBackend.spec.Image != "example.com/conquest-runner:nf-24.10.4" {
+	if runBackend.spec == nil || runBackend.spec.Image != "example.com/conquest-nf-24.10.4-runner:latest" {
 		t.Fatal("run backend did not receive prepared runner spec")
 	}
 }
@@ -81,7 +81,7 @@ func TestSubmitRun_CleansUpWhenPersistSubmittedRunFails(t *testing.T) {
 			RequestPayload:        json.RawMessage(`{"workflow_url":"https://github.com/org/repo"}`),
 			ResolvedWorkflowRef:   "https://github.com/org/repo@abc",
 			RunnerSpec: backend.RunnerSpec{
-				Image:   "example.com/conquest-runner:nf-24.10.4",
+				Image:   "example.com/conquest-nf-24.10.4-runner:latest",
 				Command: []string{"/usr/local/bin/conquest"},
 				Args:    []string{"runner", "nextflow"},
 			},

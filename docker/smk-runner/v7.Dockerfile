@@ -5,9 +5,9 @@
 # runner binary. The runner uses --cores N --use-conda --keep-going mode.
 #
 # Build:
-#   docker build -f Dockerfile.snakemake-runner-v7 \
+#   docker build -f docker/smk-runner/v7.Dockerfile \
 #     --platform linux/amd64 \
-#     -t harbor.pacificanalytics.com/pacificanalytics/conquest-snakemake-runner:sm-7.32.4 .
+#     -t harbor.pacificanalytics.com/pacificanalytics/conquest-smk-7.32.4-runner:release-20260329 .
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
 

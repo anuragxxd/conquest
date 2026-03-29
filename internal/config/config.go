@@ -89,7 +89,7 @@ func Load() (*Config, error) {
 		PageSizeMax:                   envIntOr("CONQUEST_PAGE_SIZE_MAX", 256),
 		ServiceAccount:                envOr("CONQUEST_SERVICE_ACCOUNT", "conquest"),
 		ConquestImage:                 envOr("CONQUEST_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest:latest"),
-		RunnerImage:                   envOr("CONQUEST_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-runner:latest"),
+		RunnerImage:                   envOr("CONQUEST_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner:latest"),
 		InternalBaseURL:               envOr("CONQUEST_INTERNAL_BASE_URL", "http://conquest.services.svc"),
 		NextflowRunnerImages:          nextflowRunnerImages,
 		SnakemakeRunnerImage:          strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGE")),

@@ -9,7 +9,7 @@ import (
 
 func TestNextflowRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 	adapter := NewNextflowRunAdapter(NextflowRunAdapterConfig{
-		DefaultRunnerImage: "example.com/conquest-runner:nf-default",
+		DefaultRunnerImage: "example.com/conquest-nf-24.10.4-runner:latest",
 		InternalBaseURL:    "http://conquest.services.svc.cluster.local",
 		S3Endpoint:         "http://minio.platform.svc.cluster.local:9000",
 		S3Bucket:           "conquest",
@@ -33,7 +33,7 @@ func TestNextflowRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 	if prepared.WorkflowEngineVersion != "24.10.4" {
 		t.Fatalf("engine version = %q", prepared.WorkflowEngineVersion)
 	}
-	if prepared.RunnerSpec.Image != "example.com/conquest-runner:nf-default" {
+	if prepared.RunnerSpec.Image != "example.com/conquest-nf-24.10.4-runner:latest" {
 		t.Fatalf("runner image = %q", prepared.RunnerSpec.Image)
 	}
 
@@ -77,9 +77,9 @@ func TestNextflowRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 
 func TestNextflowRunAdapter_PrepareRun_UsesVersionSpecificImage(t *testing.T) {
 	adapter := NewNextflowRunAdapter(NextflowRunAdapterConfig{
-		DefaultRunnerImage: "example.com/conquest-runner:nf-default",
+		DefaultRunnerImage: "example.com/conquest-nf-24.10.4-runner:latest",
 		RunnerImagesByVersion: map[string]string{
-			"25.04.3": "example.com/conquest-runner:nf-25.04.3",
+			"25.04.3": "example.com/conquest-nf-25.04.3-runner:latest",
 		},
 		InternalBaseURL: "http://conquest.services.svc.cluster.local",
 		S3Endpoint:      "http://minio.platform.svc.cluster.local:9000",
@@ -97,14 +97,14 @@ func TestNextflowRunAdapter_PrepareRun_UsesVersionSpecificImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if prepared.RunnerSpec.Image != "example.com/conquest-runner:nf-25.04.3" {
+	if prepared.RunnerSpec.Image != "example.com/conquest-nf-25.04.3-runner:latest" {
 		t.Fatalf("runner image = %q", prepared.RunnerSpec.Image)
 	}
 }
 
 func TestNextflowRunAdapter_PrepareRun_RejectsMissingConfiguredImage(t *testing.T) {
 	adapter := NewNextflowRunAdapter(NextflowRunAdapterConfig{
-		DefaultRunnerImage: "example.com/conquest-runner:nf-default",
+		DefaultRunnerImage: "example.com/conquest-nf-24.10.4-runner:latest",
 		InternalBaseURL:    "http://conquest.services.svc.cluster.local",
 		S3Endpoint:         "http://minio.platform.svc.cluster.local:9000",
 		S3Bucket:           "conquest",
@@ -132,7 +132,7 @@ func TestNextflowRunAdapter_PrepareRun_RejectsMissingConfiguredImage(t *testing.
 
 func TestNextflowRunAdapter_PrepareRun_RejectsInvalidWorkflowParams(t *testing.T) {
 	adapter := NewNextflowRunAdapter(NextflowRunAdapterConfig{
-		DefaultRunnerImage: "example.com/conquest-runner:nf-default",
+		DefaultRunnerImage: "example.com/conquest-nf-24.10.4-runner:latest",
 		InternalBaseURL:    "http://conquest.services.svc.cluster.local",
 		S3Endpoint:         "http://minio.platform.svc.cluster.local:9000",
 		S3Bucket:           "conquest",

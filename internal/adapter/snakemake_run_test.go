@@ -9,7 +9,7 @@ import (
 
 func TestSnakemakeRunAdapter_PrepareRun_DefaultVersionAndImages(t *testing.T) {
 	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{
-		DefaultRunnerImage: "example.com/conquest-snakemake-runner:latest",
+		DefaultRunnerImage: "example.com/conquest-smk-9.17.3-runner:latest",
 		DefaultTaskImage:   "example.com/conquest-snakemake-task:latest",
 		DefaultJobs:        24,
 		DefaultDiskMB:      8192,
@@ -33,7 +33,7 @@ func TestSnakemakeRunAdapter_PrepareRun_DefaultVersionAndImages(t *testing.T) {
 	if prepared.WorkflowEngineVersion != "9.17.3" {
 		t.Fatalf("engine version = %q", prepared.WorkflowEngineVersion)
 	}
-	if prepared.RunnerSpec.Image != "example.com/conquest-snakemake-runner:latest" {
+	if prepared.RunnerSpec.Image != "example.com/conquest-smk-9.17.3-runner:latest" {
 		t.Fatalf("runner image = %q", prepared.RunnerSpec.Image)
 	}
 

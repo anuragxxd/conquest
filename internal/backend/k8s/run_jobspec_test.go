@@ -23,7 +23,7 @@ func TestBuildRunnerJobSpec_UsesProvidedRunnerSpec(t *testing.T) {
 		EphemeralStorageRequest: "12Gi",
 		EphemeralStorageLimit:   "24Gi",
 	}, &backend.RunnerSpec{
-		Image:   "example.com/conquest-runner:nf-25.04.3",
+		Image:   "example.com/conquest-nf-25.04.3-runner:latest",
 		Command: []string{"/usr/local/bin/conquest"},
 		Args:    []string{"runner", "nextflow", "--run-id", run.RunID},
 		Env: []backend.EnvVar{
@@ -36,7 +36,7 @@ func TestBuildRunnerJobSpec_UsesProvidedRunnerSpec(t *testing.T) {
 	}
 
 	container := job.Spec.Template.Spec.Containers[0]
-	if got := container.Image; got != "example.com/conquest-runner:nf-25.04.3" {
+	if got := container.Image; got != "example.com/conquest-nf-25.04.3-runner:latest" {
 		t.Fatalf("runner image = %q", got)
 	}
 	if got := container.Command[0]; got != "/usr/local/bin/conquest" {
@@ -96,7 +96,7 @@ func TestBuildRunnerJobSpec_OmitsNextflowHomeForSnakemake(t *testing.T) {
 	run := domain.NewRun("SMK", "9.17.3", "snakemake", "9.17.3", nil, "", "v1", "")
 
 	job, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{
-		Image:   "example.com/conquest-snakemake-runner:latest",
+		Image:   "example.com/conquest-smk-9.17.3-runner:latest",
 		Command: []string{"/usr/local/bin/conquest"},
 		Args:    []string{"runner", "snakemake"},
 	}, emptyDirWS(), nil)
@@ -122,7 +122,7 @@ func TestBuildRunnerJobSpec_PVCMountsWorkspace(t *testing.T) {
 	ws := &pvcWorkspaceRWX{}
 
 	job, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{
-		Image:   "example.com/conquest-snakemake-runner:latest",
+		Image:   "example.com/conquest-smk-9.17.3-runner:latest",
 		Command: []string{"/usr/local/bin/conquest"},
 		Args:    []string{"runner", "snakemake"},
 	}, ws, binding)
@@ -173,7 +173,7 @@ func TestBuildRunnerJobSpec_EmptyDirNoSharedWorkspaceEnv(t *testing.T) {
 	run := domain.NewRun("SMK", "9.17.3", "snakemake", "9.17.3", nil, "", "v1", "")
 
 	job, err := buildRunnerJobSpec(run, RunConfig{}, &backend.RunnerSpec{
-		Image:   "example.com/conquest-snakemake-runner:latest",
+		Image:   "example.com/conquest-smk-9.17.3-runner:latest",
 		Command: []string{"/usr/local/bin/conquest"},
 		Args:    []string{"runner", "snakemake"},
 	}, emptyDirWS(), nil)

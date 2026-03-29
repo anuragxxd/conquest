@@ -7,16 +7,16 @@ conquest:
     pullPolicy: Always
 
   runnerImage:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-runner
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner
     tag: latest
 
   snakemakeRunnerImage:
-    repository: ""
-    tag: ""
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-smk-9.17.3-runner
+    tag: latest
 
   snakemakeTaskImage:
-    repository: ""
-    tag: ""
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-smk-9.17.3-runner
+    tag: latest
 
   snakemakeDefaultJobs: 32
   snakemakeDefaultDiskMB: 8192
@@ -32,11 +32,11 @@ conquest:
     size: "10Gi"          # PVC size (only used when mode is "pvc")
 
   # Optional per-version runner image overrides keyed by resolved Nextflow
-  # version, e.g. {"25.04.3": "harbor.../conquest-runner:nf-25.04.3"}.
+  # version, e.g. {"25.04.3": "harbor.../conquest-nf-25.04.3-runner:release-20260329"}.
   nextflowRunnerImages: {}
 
   # Optional per-version Snakemake runner/task image overrides keyed by resolved
-  # Snakemake version, e.g. {"7.32.4": "harbor.../conquest-snakemake-runner:sm-7.32.4"}.
+  # Snakemake version, e.g. {"7.32.4": "harbor.../conquest-smk-7.32.4-runner:release-20260329"}.
   # The default snakemakeRunnerImage/snakemakeTaskImage above is used for the
   # platform default version (9.17.3). Non-default versions must have an entry here.
   snakemakeRunnerImages: {}

@@ -123,14 +123,14 @@ func TestApply_PlainImageUnchanged(t *testing.T) {
 }
 
 func TestApply_FallsBackToDefaultImage(t *testing.T) {
-	p := &Policy{DefaultImage: "conquest-runner:latest"}
+	p := &Policy{DefaultImage: "conquest-nf-24.10.4-runner:latest"}
 	task := &TaskSpec{
 		Executors: []ExecutorSpec{{Image: ""}},
 	}
 	if err := p.Apply(task); err != nil {
 		t.Fatalf("Apply error: %v", err)
 	}
-	if task.Executors[0].Image != "conquest-runner:latest" {
+	if task.Executors[0].Image != "conquest-nf-24.10.4-runner:latest" {
 		t.Fatalf("image = %q", task.Executors[0].Image)
 	}
 }
