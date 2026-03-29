@@ -27,6 +27,8 @@ type Config struct {
 	NextflowRunnerImages          map[string]string
 	SnakemakeRunnerImage          string
 	SnakemakeTaskImage            string
+	SnakemakeRunnerImages         map[string]string // version -> runner image overrides
+	SnakemakeTaskImages           map[string]string // version -> task image overrides
 	SnakemakeDefaultJobs          int
 	SnakemakeDefaultDiskMB        int
 	RunnerEphemeralStorageRequest string
@@ -63,6 +65,19 @@ func Load() (*Config, error) {
 		}
 	}
 
+	snakemakeRunnerImages := map[string]string{}
+	if raw := strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGES")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &snakemakeRunnerImages); err != nil {
+			return nil, fmt.Errorf("parse CONQUEST_SNAKEMAKE_RUNNER_IMAGES: %w", err)
+		}
+	}
+	snakemakeTaskImages := map[string]string{}
+	if raw := strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_TASK_IMAGES")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &snakemakeTaskImages); err != nil {
+			return nil, fmt.Errorf("parse CONQUEST_SNAKEMAKE_TASK_IMAGES: %w", err)
+		}
+	}
+
 	c := &Config{
 		HTTPAddr:                      envOr("CONQUEST_HTTP_ADDR", ":8080"),
 		PostgresDSN:                   envOr("CONQUEST_POSTGRES_DSN", "postgres://conquest:conquest@localhost:5432/conquest?sslmode=disable"),
@@ -79,6 +94,8 @@ func Load() (*Config, error) {
 		NextflowRunnerImages:          nextflowRunnerImages,
 		SnakemakeRunnerImage:          strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGE")),
 		SnakemakeTaskImage:            strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_TASK_IMAGE")),
+		SnakemakeRunnerImages:         snakemakeRunnerImages,
+		SnakemakeTaskImages:           snakemakeTaskImages,
 		SnakemakeDefaultJobs:          envIntOr("CONQUEST_SNAKEMAKE_DEFAULT_JOBS", 32),
 		SnakemakeDefaultDiskMB:        envIntOr("CONQUEST_SNAKEMAKE_DEFAULT_DISK_MB", 8192),
 		RunnerEphemeralStorageRequest: envOr("CONQUEST_RUNNER_EPHEMERAL_STORAGE_REQUEST", "20Gi"),

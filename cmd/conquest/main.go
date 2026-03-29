@@ -114,16 +114,18 @@ func run(log *slog.Logger) error {
 			S3Region:              cfg.S3Region,
 		}),
 	}
-	if cfg.SnakemakeRunnerImage != "" {
+	if cfg.SnakemakeRunnerImage != "" || len(cfg.SnakemakeRunnerImages) > 0 {
 		adapters = append(adapters, adapter.NewSnakemakeRunAdapter(adapter.SnakemakeRunAdapterConfig{
-			RunnerImage:     cfg.SnakemakeRunnerImage,
-			TaskImage:       cfg.SnakemakeTaskImage,
-			DefaultJobs:     cfg.SnakemakeDefaultJobs,
-			DefaultDiskMB:   cfg.SnakemakeDefaultDiskMB,
-			InternalBaseURL: cfg.InternalBaseURL,
-			S3Endpoint:      cfg.S3Endpoint,
-			S3Bucket:        cfg.S3Bucket,
-			S3Region:        cfg.S3Region,
+			DefaultRunnerImage:    cfg.SnakemakeRunnerImage,
+			DefaultTaskImage:      cfg.SnakemakeTaskImage,
+			RunnerImagesByVersion: cfg.SnakemakeRunnerImages,
+			TaskImagesByVersion:   cfg.SnakemakeTaskImages,
+			DefaultJobs:           cfg.SnakemakeDefaultJobs,
+			DefaultDiskMB:         cfg.SnakemakeDefaultDiskMB,
+			InternalBaseURL:       cfg.InternalBaseURL,
+			S3Endpoint:            cfg.S3Endpoint,
+			S3Bucket:              cfg.S3Bucket,
+			S3Region:              cfg.S3Region,
 		}))
 	}
 	adapterRegistry := adapter.NewRegistry(adapters...)

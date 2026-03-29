@@ -126,8 +126,23 @@ func RunSnakemake(ctx context.Context, cfg SnakemakeConfig, log *slog.Logger) er
 	return nil
 }
 
+// isLocalExecution returns true for Snakemake versions that run all tasks
+// locally inside the runner pod (SM7) rather than dispatching via TES (SM9+).
+func isLocalExecution(version string) bool {
+	return strings.HasPrefix(version, "7.")
+}
+
 func buildSnakemakeArgs(cfg SnakemakeConfig, configFile string) []string {
-	args := []string{"--executor", "conquest-tes", "--jobs", fmt.Sprintf("%d", cfg.Jobs), "--use-conda", "--show-failed-logs"}
+	var args []string
+
+	if isLocalExecution(cfg.SnakemakeVersion) {
+		// Snakemake 7.x: local execution, all tasks run in the runner pod.
+		args = []string{"--cores", fmt.Sprintf("%d", cfg.Jobs), "--use-conda", "--show-failed-logs", "--keep-going", "--conda-frontend", "conda"}
+	} else {
+		// Snakemake 9.x+: dispatch tasks via the Conquest TES executor plugin.
+		args = []string{"--executor", "conquest-tes", "--jobs", fmt.Sprintf("%d", cfg.Jobs), "--use-conda", "--show-failed-logs"}
+	}
+
 	if cfg.Snakefile != "" {
 		args = append(args, "--snakefile", cfg.Snakefile)
 	}
@@ -138,12 +153,15 @@ func buildSnakemakeArgs(cfg SnakemakeConfig, configFile string) []string {
 		args = append(args, "--configfile", configFile)
 	}
 
-	defaultResources := []string{"tmpdir=system_tmpdir"}
-	if cfg.DefaultDiskMB > 0 {
-		defaultResources = append(defaultResources, fmt.Sprintf("disk_mb=%d", cfg.DefaultDiskMB))
-	}
-	for _, resource := range defaultResources {
-		args = append(args, "--default-resources", resource)
+	if !isLocalExecution(cfg.SnakemakeVersion) {
+		// Default resources are only meaningful for TES dispatch mode.
+		defaultResources := []string{"tmpdir=system_tmpdir"}
+		if cfg.DefaultDiskMB > 0 {
+			defaultResources = append(defaultResources, fmt.Sprintf("disk_mb=%d", cfg.DefaultDiskMB))
+		}
+		for _, resource := range defaultResources {
+			args = append(args, "--default-resources", resource)
+		}
 	}
 
 	if len(cfg.Targets) > 0 {

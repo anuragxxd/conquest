@@ -9,14 +9,14 @@ import (
 
 func TestSnakemakeRunAdapter_PrepareRun_DefaultVersionAndImages(t *testing.T) {
 	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{
-		RunnerImage:     "example.com/conquest-snakemake-runner:latest",
-		TaskImage:       "example.com/conquest-snakemake-task:latest",
-		DefaultJobs:     24,
-		DefaultDiskMB:   8192,
-		InternalBaseURL: "http://conquest.services.svc.cluster.local",
-		S3Endpoint:      "http://minio.platform.svc.cluster.local:9000",
-		S3Bucket:        "conquest",
-		S3Region:        "us-east-1",
+		DefaultRunnerImage: "example.com/conquest-snakemake-runner:latest",
+		DefaultTaskImage:   "example.com/conquest-snakemake-task:latest",
+		DefaultJobs:        24,
+		DefaultDiskMB:      8192,
+		InternalBaseURL:    "http://conquest.services.svc.cluster.local",
+		S3Endpoint:         "http://minio.platform.svc.cluster.local:9000",
+		S3Bucket:           "conquest",
+		S3Region:           "us-east-1",
 	})
 
 	prepared, err := adapter.PrepareRun("run-123", SubmissionRequest{
@@ -103,8 +103,117 @@ func TestSnakemakeRunAdapter_PrepareRun_DefaultVersionAndImages(t *testing.T) {
 	}
 }
 
+func TestSnakemakeRunAdapter_PrepareRun_UsesVersionSpecificImage(t *testing.T) {
+	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{
+		DefaultRunnerImage: "example.com/runner:sm9",
+		DefaultTaskImage:   "example.com/task:sm9",
+		RunnerImagesByVersion: map[string]string{
+			"7.32.4": "example.com/runner:sm7",
+		},
+		TaskImagesByVersion: map[string]string{
+			"7.32.4": "example.com/task:sm7",
+		},
+		DefaultJobs:     8,
+		DefaultDiskMB:   8192,
+		InternalBaseURL: "http://conquest.svc",
+		S3Endpoint:      "http://minio:9000",
+		S3Bucket:        "conquest",
+		S3Region:        "us-east-1",
+	})
+
+	prepared, err := adapter.PrepareRun("run-v7", SubmissionRequest{
+		WorkflowType:             "SMK",
+		WorkflowTypeVersion:      "7.32.4",
+		WorkflowEngineVersion:    "7.32.4",
+		WorkflowURL:              "https://github.com/cbg-ethz/V-pipe",
+		WorkflowEngineParameters: json.RawMessage(`{"revision":"9765aa7880237490c5862853b4040e4c38fdd514"}`),
+	}, storage.Layout{Bucket: "conquest", Version: "v1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if prepared.WorkflowEngineVersion != "7.32.4" {
+		t.Fatalf("engine version = %q, want %q", prepared.WorkflowEngineVersion, "7.32.4")
+	}
+	if prepared.RunnerSpec.Image != "example.com/runner:sm7" {
+		t.Fatalf("runner image = %q, want %q", prepared.RunnerSpec.Image, "example.com/runner:sm7")
+	}
+
+	foundTaskImage := false
+	for _, env := range prepared.RunnerSpec.Env {
+		if env.Name == "CONQUEST_SNAKEMAKE_TASK_IMAGE" && env.Value == "example.com/task:sm7" {
+			foundTaskImage = true
+		}
+	}
+	if !foundTaskImage {
+		t.Fatal("runner env should use version-specific task image for SM7")
+	}
+}
+
+func TestSnakemakeRunAdapter_PrepareRun_RejectsMissingConfiguredImage(t *testing.T) {
+	// Only the default SM9 image is configured; requesting SM7 should fail.
+	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{
+		DefaultRunnerImage: "example.com/runner:sm9",
+		DefaultJobs:        8,
+		DefaultDiskMB:      8192,
+	})
+
+	_, err := adapter.PrepareRun("run-v7", SubmissionRequest{
+		WorkflowType:             "SMK",
+		WorkflowTypeVersion:      "7.32.4",
+		WorkflowEngineVersion:    "7.32.4",
+		WorkflowURL:              "https://github.com/cbg-ethz/V-pipe",
+		WorkflowEngineParameters: json.RawMessage(`{"revision":"9765aa7880237490c5862853b4040e4c38fdd514"}`),
+	}, storage.Layout{Bucket: "conquest", Version: "v1"})
+	if err == nil {
+		t.Fatal("expected validation error for unconfigured SM7")
+	}
+	if _, ok := err.(*ValidationError); !ok {
+		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestSnakemakeRunAdapter_PrepareRun_TaskImageFallsBackToRunner(t *testing.T) {
+	// Version-specific runner image set, but no task image — should use runner image.
+	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{
+		DefaultRunnerImage: "example.com/runner:sm9",
+		RunnerImagesByVersion: map[string]string{
+			"7.32.4": "example.com/runner:sm7",
+		},
+		// No TaskImagesByVersion for 7.32.4
+		DefaultJobs:     8,
+		DefaultDiskMB:   8192,
+		InternalBaseURL: "http://conquest.svc",
+		S3Endpoint:      "http://minio:9000",
+		S3Bucket:        "conquest",
+		S3Region:        "us-east-1",
+	})
+
+	prepared, err := adapter.PrepareRun("run-v7-notask", SubmissionRequest{
+		WorkflowType:             "SMK",
+		WorkflowTypeVersion:      "7.32.4",
+		WorkflowEngineVersion:    "7.32.4",
+		WorkflowURL:              "https://github.com/cbg-ethz/V-pipe",
+		WorkflowEngineParameters: json.RawMessage(`{"revision":"9765aa7880237490c5862853b4040e4c38fdd514"}`),
+	}, storage.Layout{Bucket: "conquest", Version: "v1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Task image should fall back to runner image
+	foundTaskImage := false
+	for _, env := range prepared.RunnerSpec.Env {
+		if env.Name == "CONQUEST_SNAKEMAKE_TASK_IMAGE" && env.Value == "example.com/runner:sm7" {
+			foundTaskImage = true
+		}
+	}
+	if !foundTaskImage {
+		t.Fatal("task image should fall back to runner image when not explicitly set")
+	}
+}
+
 func TestSnakemakeRunAdapter_PrepareRun_RejectsInvalidSnakefile(t *testing.T) {
-	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{RunnerImage: "example.com/runner", DefaultJobs: 8, DefaultDiskMB: 8192})
+	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{DefaultRunnerImage: "example.com/runner", DefaultJobs: 8, DefaultDiskMB: 8192})
 
 	_, err := adapter.PrepareRun("run-123", SubmissionRequest{
 		WorkflowType:             "SMK",
@@ -121,7 +230,7 @@ func TestSnakemakeRunAdapter_PrepareRun_RejectsInvalidSnakefile(t *testing.T) {
 }
 
 func TestSnakemakeRunAdapter_PrepareRun_RejectsInvalidDirectory(t *testing.T) {
-	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{RunnerImage: "example.com/runner", DefaultJobs: 8, DefaultDiskMB: 8192})
+	adapter := NewSnakemakeRunAdapter(SnakemakeRunAdapterConfig{DefaultRunnerImage: "example.com/runner", DefaultJobs: 8, DefaultDiskMB: 8192})
 
 	_, err := adapter.PrepareRun("run-123", SubmissionRequest{
 		WorkflowType:             "SMK",

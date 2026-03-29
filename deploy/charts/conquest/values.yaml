@@ -35,6 +35,13 @@ conquest:
   # version, e.g. {"25.04.3": "harbor.../conquest-runner:nf-25.04.3"}.
   nextflowRunnerImages: {}
 
+  # Optional per-version Snakemake runner/task image overrides keyed by resolved
+  # Snakemake version, e.g. {"7.32.4": "harbor.../conquest-snakemake-runner:sm-7.32.4"}.
+  # The default snakemakeRunnerImage/snakemakeTaskImage above is used for the
+  # platform default version (9.17.3). Non-default versions must have an entry here.
+  snakemakeRunnerImages: {}
+  snakemakeTaskImages: {}
+
   service:
     type: ClusterIP
     port: 80

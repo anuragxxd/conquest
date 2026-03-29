@@ -13,14 +13,16 @@ import (
 )
 
 type SnakemakeRunAdapterConfig struct {
-	RunnerImage     string
-	TaskImage       string
-	DefaultJobs     int
-	DefaultDiskMB   int
-	InternalBaseURL string
-	S3Endpoint      string
-	S3Bucket        string
-	S3Region        string
+	DefaultRunnerImage    string            // fallback runner image for the default SM version
+	DefaultTaskImage      string            // fallback task image for the default SM version
+	RunnerImagesByVersion map[string]string  // version -> runner image overrides
+	TaskImagesByVersion   map[string]string  // version -> task image overrides
+	DefaultJobs           int
+	DefaultDiskMB         int
+	InternalBaseURL       string
+	S3Endpoint            string
+	S3Bucket              string
+	S3Region              string
 }
 
 type SnakemakeRunAdapter struct {
@@ -48,8 +50,13 @@ func (a *SnakemakeRunAdapter) PrepareRun(runID string, req SubmissionRequest, la
 		return nil, &ValidationError{Field: "workflow_engine_version", Msg: err.Error()}
 	}
 
-	if strings.TrimSpace(a.cfg.RunnerImage) == "" {
-		return nil, &ValidationError{Field: "workflow_engine", Msg: "snakemake execution is not configured in this deployment"}
+	runnerImage := a.resolveRunnerImage(runtime.Version)
+	if runnerImage == "" {
+		return nil, &ValidationError{Field: "workflow_engine_version", Msg: fmt.Sprintf("snakemake version %q is not configured for execution in this deployment", runtime.Version)}
+	}
+	taskImage := a.resolveTaskImage(runtime.Version)
+	if taskImage == "" {
+		taskImage = runnerImage
 	}
 
 	resolved, err := source.ResolveRepository(req.WorkflowURL, smkParams.Revision)
@@ -157,9 +164,7 @@ func (a *SnakemakeRunAdapter) PrepareRun(runID string, req SubmissionRequest, la
 	if len(workflowParams) > 0 {
 		env = append(env, backend.EnvVar{Name: "CONQUEST_WORKFLOW_PARAMS", Value: string(workflowParams)})
 	}
-	if strings.TrimSpace(a.cfg.TaskImage) != "" {
-		env = append(env, backend.EnvVar{Name: "CONQUEST_SNAKEMAKE_TASK_IMAGE", Value: strings.TrimSpace(a.cfg.TaskImage)})
-	}
+	env = append(env, backend.EnvVar{Name: "CONQUEST_SNAKEMAKE_TASK_IMAGE", Value: taskImage})
 
 	return &PreparedRun{
 		WorkflowEngine:        a.Name(),
@@ -167,12 +172,37 @@ func (a *SnakemakeRunAdapter) PrepareRun(runID string, req SubmissionRequest, la
 		RequestPayload:        payload,
 		ResolvedWorkflowRef:   resolved.Ref,
 		RunnerSpec: backend.RunnerSpec{
-			Image:   strings.TrimSpace(a.cfg.RunnerImage),
+			Image:   runnerImage,
 			Command: []string{"/usr/local/bin/conquest"},
 			Args:    args,
 			Env:     env,
 		},
 	}, nil
+}
+
+// resolveRunnerImage picks the Snakemake runner image for the given version.
+// It checks version-specific overrides first, then falls back to the default
+// runner image when the requested version matches the platform default.
+func (a *SnakemakeRunAdapter) resolveRunnerImage(version string) string {
+	if image := strings.TrimSpace(a.cfg.RunnerImagesByVersion[version]); image != "" {
+		return image
+	}
+	if version == smkengine.DefaultVersion() {
+		return strings.TrimSpace(a.cfg.DefaultRunnerImage)
+	}
+	return ""
+}
+
+// resolveTaskImage picks the Snakemake task image for the given version.
+// Same resolution order as resolveRunnerImage.
+func (a *SnakemakeRunAdapter) resolveTaskImage(version string) string {
+	if image := strings.TrimSpace(a.cfg.TaskImagesByVersion[version]); image != "" {
+		return image
+	}
+	if version == smkengine.DefaultVersion() {
+		return strings.TrimSpace(a.cfg.DefaultTaskImage)
+	}
+	return ""
 }
 
 func validateWorkflowRelativePath(name, value string) error {

@@ -176,6 +176,14 @@ spec:
             - name: CONQUEST_NEXTFLOW_RUNNER_IMAGES
               value: {{ toJson .Values.conquest.nextflowRunnerImages | quote }}
             {{- end }}
+            {{- if .Values.conquest.snakemakeRunnerImages }}
+            - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGES
+              value: {{ toJson .Values.conquest.snakemakeRunnerImages | quote }}
+            {{- end }}
+            {{- if .Values.conquest.snakemakeTaskImages }}
+            - name: CONQUEST_SNAKEMAKE_TASK_IMAGES
+              value: {{ toJson .Values.conquest.snakemakeTaskImages | quote }}
+            {{- end }}
             - name: CONQUEST_WORKSPACE_MODE
               value: {{ .Values.conquest.workspace.mode | quote }}
             - name: CONQUEST_WORKSPACE_ACCESS_MODE
