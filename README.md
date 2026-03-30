@@ -89,6 +89,19 @@ Each engine version gets its own Docker image with pinned dependencies. The
 version is selected at submission time via `workflow_engine_version` in the WES
 request — if omitted, the default is used.
 
+## Task Resource Control
+
+Both engines dispatch work through TES, so users control CPU, memory, and disk
+for each task pod directly in their workflow. Nextflow uses process directives
+(`cpus`, `memory`, `disk`); Snakemake uses rule resources (`cpus`, `mem_gb`,
+`disk_gb`). The engine plugin translates these to TES resource fields, and
+Conquest maps them to Kubernetes resource requests/limits.
+
+A task policy layer fills in defaults when omitted (1 CPU, 2 GB RAM, 8 GB
+disk) and enforces platform-level floors and ceilings. See
+`CONQUEST_TASK_DEFAULT_*`, `CONQUEST_TASK_MIN_*`, and `CONQUEST_TASK_MAX_*`
+in [`internal/config/config.go`](internal/config/config.go).
+
 ## Workspace Modes
 
 Controls how the runner pod and task pods share (or don't share) a filesystem.
@@ -97,7 +110,7 @@ Controls how the runner pod and task pods share (or don't share) a filesystem.
 |---------------|----------------------|-------------------|-----------------------------------------------------------------------------------------------------------|
 | `pvc` + `RWX` | PVC (ReadWriteMany)  | Yes               | **Preferred.** Requires NFS or a similar StorageClass.                                                    |
 | `pvc` + `RWO` | PVC (ReadWriteOnce)  | Yes               | Good fallback when NFS isn't available. Co-locates tasks on the same node as the runner via pod affinity. |
-| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Works well for Nextflow and simple Snakemake runs. Good fallback when the cluster has no persistent storage provisioner. |
+| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Fully comapatible with Nextflow and simple Snakemake runs. Good fallback when the cluster has no persistent storage provisioner. |
 
 ```bash
 CONQUEST_WORKSPACE_MODE=pvc          # "emptydir" or "pvc"

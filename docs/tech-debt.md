@@ -175,12 +175,18 @@ configured by the platform operator, not passed through the WES API.
 ## TD-007: Missing WES ServiceInfo required fields
 
 **Decided:** 2026-03-25
-**Status:** Active
+**Status:** Active (partially addressed)
 
 **What we chose:**
 `GET /service-info` returns basic fields plus `system_state_counts`.
 The full WES spec also requires `auth_instructions_url` and richer
 `default_workflow_engine_parameters`.
+
+**Progress:**
+- `auth_instructions_url` field exists in the `ServiceInfo` struct but
+  is always empty string — never populated.
+- `default_workflow_engine_parameters` is still completely absent from
+  both the struct and the handler.
 
 **Why:**
 - Auth instructions and default params need design decisions.
@@ -218,31 +224,10 @@ TES API.
 
 ---
 
-## TD-009: TES ListTasks returns empty (stub)
+## TD-009: Postgres repository uses raw pgx, not sqlc
 
 **Decided:** 2026-03-25
-**Status:** Active
-
-**What we chose:**
-`GET /ga4gh/tes/v1/tasks` returns an empty list. We don't have a
-general-purpose "list all tasks across all runs" query yet. Tasks are
-accessible per-run via the WES task endpoints.
-
-**Why:**
-- The primary consumer (nf-ga4gh plugin) does not call ListTasks.
-- Adding a general task listing with all TES filters (name_prefix,
-  state, tag_key/tag_value) is non-trivial.
-
-**When to address:**
-- When a TES client needs the list endpoint.
-- When building admin/observability tooling.
-
----
-
-## TD-010: Postgres repository uses raw pgx, not sqlc
-
-**Decided:** 2026-03-25
-**Status:** Active
+**Status:** Active — approaching trigger threshold (~29 queries)
 
 **What we chose:**
 Repository implementations use hand-written pgx queries instead of
@@ -253,86 +238,39 @@ sqlc-generated code. The sqlc.yaml config is present for future use.
 - Hand-written queries are faster to iterate on during early development.
 - The query surface is small enough to manage by hand.
 
+**Current state:**
+The repository layer now has ~29 distinct SQL operations across
+`runs.go`, `tasks.go`, and `events.go`. This is at the upper end of
+the original trigger threshold (~20-30).
+
 **When to address:**
 - When the query count exceeds ~20-30 and type safety becomes a concern.
 - When onboarding new developers who benefit from generated code.
 
 ---
 
-## TD-011: emptyDir workspace (no persistent or S3-mounted workdir)
+## TD-010: Incomplete pod security context on task Jobs
 
 **Decided:** 2026-03-26
-**Status:** Active
+**Status:** Active (partially addressed)
 
 **What we chose:**
-Task executor containers use a Kubernetes `emptyDir` volume for the
-workdir (default `/work`). Inputs are downloaded from S3 by an init
-container, and outputs are uploaded by the reconciler after completion.
+Task Jobs have minimal `securityContext`. The executor runs as whatever
+user the container image specifies.
 
-**Why:**
-- `emptyDir` works on any K8s cluster, including Talos Linux (no FUSE,
-  no CSI driver, no kernel modules needed).
-- Avoids the POSIX-compatibility and consistency issues of S3 FUSE
-  mounts (s3fs, geesefs) for mutable task workdirs.
-- Simplest approach for the Nextflow-via-TES vertical slice where
-  files are small `.command.*` scripts and logs.
+**Progress:**
+- Pod-level `fsGroup: 1000` is now set for PVC-backed workspaces via
+  `podSecurityContextForWorkspace()` in `podspec.go`.
+- The server Deployment has full hardening (`runAsNonRoot`, `capabilities.drop: ALL`,
+  `readOnlyRootFilesystem`, `seccompProfile: RuntimeDefault`).
 
-**What we gave up:**
-- Data is copied twice (S3 → emptyDir → S3) instead of accessed in
-  place.
-- Workdir size is limited by node disk space (not object storage).
-- Large reference files would benefit from a read-only mounted volume
-  (e.g. Mountpoint for S3 or CSI-S3).
-
-**Risk if never addressed:**
-- Cannot handle tasks with very large input/output datasets efficiently.
-- Storage-intensive workflows may run out of ephemeral disk.
-
-**When to address:**
-- When tasks routinely need >10GB of input data.
-- When adding large-reference-file support (read-only S3 mount).
-- When CSI-S3 or JuiceFS is deployed to the cluster.
-
----
-
-## TD-012: Output stage-out not yet implemented
-
-**Decided:** 2026-03-26
-**Status:** Active
-
-**What we chose:**
-The reconciler detects task completion and captures exit codes, but
-does not yet upload output files from the workdir to S3. For the
-Nextflow-via-nf-ga4gh path, Nextflow's TES plugin declares outputs
-that point back to the S3 work directory — so Nextflow handles
-output collection itself via the S3 URLs.
-
-**Why:**
-- nf-ga4gh writes `.command.out`, `.command.err`, `.exitcode` etc. as
-  TES outputs with `url=s3://...`, meaning the TES server is expected
-  to upload them. However, since the executor runs with emptyDir and
-  the files are created locally, we need to implement stage-out.
-- This is deferred until we have the stage-in path working end-to-end.
-
-**Risk if never addressed:**
-- TES output files won't be uploaded to S3 after completion.
-- nf-ga4gh expects `.command.out` and `.command.err` to be available
-  at the declared S3 URLs after task completion.
-
-**When to address:**
-- Before the first end-to-end Nextflow run (Batch D).
-- This is the most critical remaining gap.
-
----
-
-## TD-013: No pod security context on task Jobs
-
-**Decided:** 2026-03-26
-**Status:** Active
-
-**What we chose:**
-Task Jobs do not set `securityContext` on the executor container or
-pod. The executor runs as whatever user the container image specifies.
+**What remains:**
+- emptyDir mode (the default) still gets `nil` SecurityContext.
+- No container-level SecurityContext on any executor, init, or runner container
+  (`runAsNonRoot`, `allowPrivilegeEscalation`, `capabilities`, `seccompProfile`
+  are all unset).
+- The PVC-mode pod-level context only sets `fsGroup`, not `runAsNonRoot`,
+  `runAsUser`, or `seccompProfile`.
 
 **Why:**
 - Many bioinformatics tools expect to run as root or have specific
@@ -390,26 +328,40 @@ or parameter schemas.
 
 ---
 
-## TD-015: Runner image Nextflow/plugin versions are pinned but not parameterized
+## TD-015: Runner plugin versions are pinned in Go source, not configurable at deploy time
 
 **Decided:** 2026-03-26
-**Status:** Active
+**Status:** Active (partially addressed)
 
 **What we chose:**
-The runner Dockerfile hardcodes Nextflow 24.10.4, nf-ga4gh 1.3.0, and
-nf-amazon 2.9.0. Changing versions requires rebuilding the image.
+Plugin version-to-runtime mappings are hardcoded in Go source. Adding
+a new plugin version requires a code change and rebuild.
+
+**Progress:**
+- Multiple Nextflow versions now supported (24.10.4, 25.04.3, 25.10.2,
+  25.10.4) with per-version runner images.
+- The nf-runner Dockerfile uses `ARG NXF_BASE_IMAGE` build arg.
+- Runtime image selection is configurable via
+  `CONQUEST_NEXTFLOW_RUNNER_IMAGES` env var and Helm values.
+
+**What remains:**
+- Plugin versions (nf-ga4gh, nf-amazon) are still hardcoded in
+  `internal/engine/nextflow/runtime.go` — not configurable via
+  environment variables or Helm values.
+- Each new Nextflow version still requires a separate Docker image build.
 
 **Why:**
 - Reproducibility and simplicity for the first end-to-end slice.
 - No need for runtime plugin resolution with network access.
 
 **Risk if never addressed:**
-- Cannot easily test new Nextflow/plugin versions without image rebuilds.
-- Cannot support workflows that require specific Nextflow versions.
+- Plugin version updates require code changes and redeployment.
+- Cannot support workflows that require specific plugin versions
+  without modifying Go source.
 
 **When to address:**
-- When a workflow requires a different Nextflow version.
-- When adding support for user-specified engine versions.
+- When plugin version flexibility is needed across deployments.
+- When adding support for user-specified plugin versions.
 
 ---
 
