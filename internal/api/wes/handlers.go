@@ -15,6 +15,7 @@ import (
 	"github.com/anuragxxd/conquest/internal/domain"
 	nfengine "github.com/anuragxxd/conquest/internal/engine/nextflow"
 	smkengine "github.com/anuragxxd/conquest/internal/engine/snakemake"
+	wdlengine "github.com/anuragxxd/conquest/internal/engine/wdl"
 	"github.com/anuragxxd/conquest/internal/repository/pg"
 )
 
@@ -64,6 +65,10 @@ func (h *Handler) GetServiceInfo(w http.ResponseWriter, r *http.Request) {
 			workflowTypes["SMK"] = TypeVersions{WorkflowTypeVersion: smkengine.SupportedVersions()}
 			engineVersions[engine] = smkengine.DefaultVersion()
 			tags["snakemake_supported_versions"] = strings.Join(smkengine.SupportedVersions(), ",")
+		case "cromwell":
+			workflowTypes["WDL"] = TypeVersions{WorkflowTypeVersion: wdlengine.SupportedWDLVersions()}
+			engineVersions[engine] = wdlengine.DefaultVersion()
+			tags["cromwell_supported_versions"] = strings.Join(wdlengine.SupportedVersions(), ",")
 		}
 	}
 
@@ -129,6 +134,7 @@ func (h *Handler) GetRun(w http.ResponseWriter, r *http.Request) {
 		Request:     &req,
 		State:       run.State,
 		TaskLogsURL: result.TaskLogsURL,
+		Outputs:     result.Outputs,
 		RunLog: &Log{
 			StartTime: controller.TimeStr(run.StartedAt),
 			EndTime:   controller.TimeStr(run.FinishedAt),

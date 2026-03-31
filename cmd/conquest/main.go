@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/anuragxxd/conquest/internal/config"
 	"github.com/anuragxxd/conquest/internal/controller"
 	"github.com/anuragxxd/conquest/internal/filer"
+	"github.com/anuragxxd/conquest/internal/objstore"
 	"github.com/anuragxxd/conquest/internal/reconciler"
 	"github.com/anuragxxd/conquest/internal/repository/pg"
 	"github.com/anuragxxd/conquest/internal/storage"
@@ -57,6 +59,14 @@ func main() {
 	if len(os.Args) >= 3 && os.Args[1] == "runner" && os.Args[2] == "snakemake" {
 		if err := runRunnerSnakemake(log); err != nil {
 			log.Error("runner snakemake failed", "err", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if len(os.Args) >= 3 && os.Args[1] == "runner" && os.Args[2] == "wdl" {
+		if err := runRunnerWDL(log); err != nil {
+			log.Error("runner wdl failed", "err", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
@@ -114,6 +124,18 @@ func run(log *slog.Logger) error {
 			S3Region:              cfg.S3Region,
 		}),
 	}
+	if cfg.CromwellRunnerImage != "" || len(cfg.CromwellRunnerImages) > 0 {
+		adapters = append(adapters, adapter.NewWDLRunAdapter(adapter.WDLRunAdapterConfig{
+			DefaultRunnerImage:    cfg.CromwellRunnerImage,
+			RunnerImagesByVersion: cfg.CromwellRunnerImages,
+			InternalBaseURL:       cfg.InternalBaseURL,
+			S3Endpoint:            cfg.S3Endpoint,
+			S3Bucket:              cfg.S3Bucket,
+			S3Region:              cfg.S3Region,
+			WorkspaceMode:         cfg.WorkspaceMode,
+			AllowExternalImports:  cfg.WDLAllowExternalImports,
+		}))
+	}
 	if cfg.SnakemakeRunnerImage != "" || len(cfg.SnakemakeRunnerImages) > 0 {
 		adapters = append(adapters, adapter.NewSnakemakeRunAdapter(adapter.SnakemakeRunAdapterConfig{
 			DefaultRunnerImage:    cfg.SnakemakeRunnerImage,
@@ -132,6 +154,11 @@ func run(log *slog.Logger) error {
 
 	// Controller.
 	runCtrl := controller.NewRunController(runStore, taskStore, eventStore, layout, adapterRegistry, log)
+	if artifactStore, err := newServerArtifactStore(cfg); err != nil {
+		log.Warn("workflow outputs artifact loading disabled", "err", err)
+	} else if artifactStore != nil {
+		runCtrl.SetArtifactStore(artifactStore)
+	}
 
 	// Workspace config is shared between task and run backends.
 	wsCfg := k8sbackend.WorkspaceConfig{
@@ -213,7 +240,7 @@ func run(log *slog.Logger) error {
 			MinRAMGb:        cfg.TaskMinRAMGb,
 			MinDiskGb:       cfg.TaskMinDiskGb,
 		},
-		RejectOnMaxViolation: true,
+		RejectOnMaxViolation: cfg.TaskRejectOnMaxViolation,
 	})
 
 	// Router.
@@ -279,4 +306,25 @@ func run(log *slog.Logger) error {
 
 	log.Info("server stopped")
 	return nil
+}
+
+func newServerArtifactStore(cfg *config.Config) (objstore.Client, error) {
+	if cfg == nil || strings.TrimSpace(cfg.S3Endpoint) == "" {
+		return nil, nil
+	}
+	accessKey := strings.TrimSpace(os.Getenv("AWS_ACCESS_KEY_ID"))
+	secretKey := strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY"))
+	if accessKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required")
+	}
+
+	useSSL := strings.HasPrefix(cfg.S3Endpoint, "https://")
+	cleanEndpoint := strings.TrimPrefix(strings.TrimPrefix(cfg.S3Endpoint, "https://"), "http://")
+	return objstore.NewS3Client(objstore.S3Config{
+		Endpoint:  cleanEndpoint,
+		AccessKey: accessKey,
+		SecretKey: secretKey,
+		Region:    cfg.S3Region,
+		UseSSL:    useSSL,
+	})
 }

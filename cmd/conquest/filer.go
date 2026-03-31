@@ -33,6 +33,11 @@ func runFilerStageIn(log *slog.Logger) error {
 	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
 	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
 
+	if !filer.ManifestNeedsObjectStoreForStageIn(manifest) {
+		ctx := context.Background()
+		return filer.StageIn(ctx, nil, manifest, log)
+	}
+
 	if endpoint == "" || accessKey == "" || secretKey == "" {
 		return fmt.Errorf("S3 config incomplete: CONQUEST_S3_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY required")
 	}

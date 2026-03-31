@@ -190,6 +190,18 @@ func TestOutputsDirURI(t *testing.T) {
 	}
 }
 
+func TestWorkflowOutputsURI(t *testing.T) {
+	l := testLayout()
+	got := l.WorkflowOutputsURI(testRunID)
+	assertSuffix(t, got, "metadata/workflow-outputs.json")
+}
+
+func TestCromwellMetadataURI(t *testing.T) {
+	l := testLayout()
+	got := l.CromwellMetadataURI(testRunID)
+	assertSuffix(t, got, "metadata/cromwell-metadata.json")
+}
+
 // ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------

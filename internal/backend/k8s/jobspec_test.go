@@ -305,6 +305,54 @@ func TestBuildJobSpec_PVCSharedTaskMountsSharedSubpath(t *testing.T) {
 	t.Fatal("executor should have workdir mount with subPath=shared")
 }
 
+func TestBuildJobSpec_PVCSharedTaskAddsSecondaryMountForCustomWorkdir(t *testing.T) {
+	tesPayload := json.RawMessage(`{
+		"name": "test-task",
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/custom/workdir"}],
+		"inputs": [{"url": "/workspace/cromwell-executions/wf/call-task/execution/script", "path": "/custom/workdir/script"}],
+		"tags": {"conquest_workspace_scope": "shared", "conquest_run_id": "run-123"}
+	}`)
+
+	task := domain.NewTask("run-123")
+	task.TESTaskID = "tes-shared-custom"
+	task.TaskRequestPayload = tesPayload
+	task.Workspace = &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindPVC,
+		ClaimName:  "conquest-workspace-run-123",
+		AccessMode: domain.WorkspaceAccessModeRWX,
+	}
+
+	ws := &pvcWorkspaceRWX{}
+	job, err := buildJobSpec(task, Config{
+		Namespace:     "services",
+		ConquestImage: "example.com/conquest:latest",
+		S3Bucket:      "conquest",
+		S3Endpoint:    "http://minio:9000",
+		S3Region:      "us-east-1",
+	}, ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	executor := job.Spec.Template.Spec.Containers[0]
+	hasWorkspaceMount := false
+	hasCustomMount := false
+	for _, mount := range executor.VolumeMounts {
+		if mount.Name != "workdir" || mount.SubPath != "shared" {
+			continue
+		}
+		if mount.MountPath == "/workspace" {
+			hasWorkspaceMount = true
+		}
+		if mount.MountPath == "/custom/workdir" {
+			hasCustomMount = true
+		}
+	}
+	if !hasWorkspaceMount || !hasCustomMount {
+		t.Fatalf("expected shared task mounts for /workspace and /custom/workdir, got %+v", executor.VolumeMounts)
+	}
+}
+
 func TestBuildJobSpec_RWOTaskHasPodAffinity(t *testing.T) {
 	tesPayload := json.RawMessage(`{
 		"name": "test-task",

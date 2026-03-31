@@ -64,6 +64,16 @@ func StageIn(ctx context.Context, client objstore.Client, manifest StageManifest
 			log.Warn("input has no url or content, skipping", "index", i)
 			continue
 		}
+		if hasSharedLocalURL(input.URL) {
+			if err := stageSharedLocalInput(input, manifest); err != nil {
+				return fmt.Errorf("input[%d] localize shared input %s: %w", i, input.URL, err)
+			}
+			log.Info("localized shared input", "url", input.URL, "path", input.Path)
+			continue
+		}
+		if client == nil {
+			return fmt.Errorf("input[%d] requires object storage staging but no object store client is configured", i)
+		}
 
 		localPath := input.Path
 		if !filepath.IsAbs(localPath) {

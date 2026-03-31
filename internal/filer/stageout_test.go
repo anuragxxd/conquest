@@ -285,6 +285,63 @@ func TestStageOutUploadsWildcardDirectoryMatches(t *testing.T) {
 	}
 }
 
+func TestStageOutMaterializesSharedLocalOutputsWithoutObjectStore(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("CONQUEST_SHARED_WORKSPACE_ROOT", root)
+
+	callRoot := filepath.Join(root, "cromwell-executions", "wf", "call-task", "execution")
+	customWorkdir := filepath.Join(root, "custom-workdir")
+	mustWriteFile(t, filepath.Join(callRoot, "script"), "#!/bin/bash\n")
+	mustWriteFile(t, filepath.Join(customWorkdir, "stdout"), "hello\n")
+
+	manifest := StageManifest{
+		Workdir: customWorkdir,
+		Outputs: []tes.Output{{
+			URL:  filepath.Join(callRoot, "stdout"),
+			Path: filepath.Join(customWorkdir, "stdout"),
+		}},
+	}
+
+	logs, err := StageOut(ctx, nil, manifest, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("StageOut error = %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("StageOut logs = %d, want 1", len(logs))
+	}
+	assertFileContents(t, filepath.Join(callRoot, "stdout"), "hello\n")
+}
+
+func TestStageOutMirrorsRootModeDirectoryIntoExistingExecutionRoot(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	t.Setenv("CONQUEST_SHARED_WORKSPACE_ROOT", root)
+
+	callRoot := filepath.Join(root, "cromwell-executions", "wf", "call-task", "execution")
+	customWorkdir := filepath.Join(root, "docker-workdir")
+	mustWriteFile(t, filepath.Join(callRoot, "script"), "#!/bin/bash\n")
+	mustWriteFile(t, filepath.Join(customWorkdir, "results", "out.txt"), "output\n")
+
+	manifest := StageManifest{
+		Workdir: customWorkdir,
+		Outputs: []tes.Output{{
+			URL:  callRoot,
+			Path: customWorkdir,
+			Type: "DIRECTORY",
+		}},
+	}
+
+	logs, err := StageOut(ctx, nil, manifest, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("StageOut error = %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("StageOut logs = %d, want 1", len(logs))
+	}
+	assertFileContents(t, filepath.Join(callRoot, "results", "out.txt"), "output\n")
+}
+
 func mustWriteFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

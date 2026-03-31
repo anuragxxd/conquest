@@ -183,6 +183,26 @@ func (l Layout) OutputsDirURI(runID string) string {
 	return l.uri(l.OutputsDir(runID))
 }
 
+// WorkflowOutputs returns the key for the persisted final workflow outputs JSON.
+func (l Layout) WorkflowOutputs(runID string) string {
+	return l.runPath(runID, "metadata/workflow-outputs.json")
+}
+
+// WorkflowOutputsURI returns the full S3 URI for the final workflow outputs JSON.
+func (l Layout) WorkflowOutputsURI(runID string) string {
+	return l.uri(l.WorkflowOutputs(runID))
+}
+
+// CromwellMetadata returns the key for the persisted Cromwell metadata JSON.
+func (l Layout) CromwellMetadata(runID string) string {
+	return l.runPath(runID, "metadata/cromwell-metadata.json")
+}
+
+// CromwellMetadataURI returns the full S3 URI for the Cromwell metadata JSON.
+func (l Layout) CromwellMetadataURI(runID string) string {
+	return l.uri(l.CromwellMetadata(runID))
+}
+
 // ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------

@@ -88,6 +88,8 @@ func InferEngine(workflowType, workflowEngine string) string {
 		return "nextflow"
 	case "SMK", "snakemake":
 		return "snakemake"
+	case "WDL", "wdl":
+		return "cromwell"
 	default:
 		return strings.TrimSpace(workflowType)
 	}

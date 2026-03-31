@@ -25,10 +25,13 @@ type Config struct {
 	RunnerImage                   string
 	InternalBaseURL               string
 	NextflowRunnerImages          map[string]string
+	CromwellRunnerImage           string
+	CromwellRunnerImages          map[string]string
 	SnakemakeRunnerImage          string
 	SnakemakeTaskImage            string
 	SnakemakeRunnerImages         map[string]string // version -> runner image overrides
 	SnakemakeTaskImages           map[string]string // version -> task image overrides
+	WDLAllowExternalImports       bool
 	SnakemakeDefaultJobs          int
 	SnakemakeDefaultDiskMB        int
 	RunnerEphemeralStorageRequest string
@@ -38,15 +41,16 @@ type Config struct {
 	ReconcilerInterval            time.Duration
 
 	// Task-level resource policy (applies to both Nextflow and Snakemake).
-	TaskDefaultCPUCores int
-	TaskDefaultRAMGb    float64
-	TaskDefaultDiskGb   float64
-	TaskMaxCPUCores     int
-	TaskMaxRAMGb        float64
-	TaskMaxDiskGb       float64
-	TaskMinCPUCores     int
-	TaskMinRAMGb        float64
-	TaskMinDiskGb       float64
+	TaskDefaultCPUCores      int
+	TaskDefaultRAMGb         float64
+	TaskDefaultDiskGb        float64
+	TaskMaxCPUCores          int
+	TaskMaxRAMGb             float64
+	TaskMaxDiskGb            float64
+	TaskRejectOnMaxViolation bool
+	TaskMinCPUCores          int
+	TaskMinRAMGb             float64
+	TaskMinDiskGb            float64
 
 	// Workspace configuration — controls how runner and task pods share a
 	// filesystem. Default is "emptydir" (current behavior). Set to "pvc" to
@@ -62,6 +66,13 @@ func Load() (*Config, error) {
 	if raw := strings.TrimSpace(os.Getenv("CONQUEST_NEXTFLOW_RUNNER_IMAGES")); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &nextflowRunnerImages); err != nil {
 			return nil, fmt.Errorf("parse CONQUEST_NEXTFLOW_RUNNER_IMAGES: %w", err)
+		}
+	}
+
+	cromwellRunnerImages := map[string]string{}
+	if raw := strings.TrimSpace(os.Getenv("CONQUEST_CROMWELL_RUNNER_IMAGES")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cromwellRunnerImages); err != nil {
+			return nil, fmt.Errorf("parse CONQUEST_CROMWELL_RUNNER_IMAGES: %w", err)
 		}
 	}
 
@@ -92,10 +103,13 @@ func Load() (*Config, error) {
 		RunnerImage:                   envOr("CONQUEST_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner:latest"),
 		InternalBaseURL:               envOr("CONQUEST_INTERNAL_BASE_URL", "http://conquest.services.svc"),
 		NextflowRunnerImages:          nextflowRunnerImages,
+		CromwellRunnerImage:           envOr("CONQUEST_CROMWELL_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-cromwell-92-runner:latest"),
+		CromwellRunnerImages:          cromwellRunnerImages,
 		SnakemakeRunnerImage:          strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGE")),
 		SnakemakeTaskImage:            strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_TASK_IMAGE")),
 		SnakemakeRunnerImages:         snakemakeRunnerImages,
 		SnakemakeTaskImages:           snakemakeTaskImages,
+		WDLAllowExternalImports:       envBoolOr("CONQUEST_WDL_ALLOW_EXTERNAL_IMPORTS", false),
 		SnakemakeDefaultJobs:          envIntOr("CONQUEST_SNAKEMAKE_DEFAULT_JOBS", 32),
 		SnakemakeDefaultDiskMB:        envIntOr("CONQUEST_SNAKEMAKE_DEFAULT_DISK_MB", 8192),
 		RunnerEphemeralStorageRequest: envOr("CONQUEST_RUNNER_EPHEMERAL_STORAGE_REQUEST", "20Gi"),
@@ -104,15 +118,16 @@ func Load() (*Config, error) {
 		ImagePullSecrets:              envCSV("CONQUEST_IMAGE_PULL_SECRETS"),
 		ReconcilerInterval:            envDurationOr("CONQUEST_RECONCILER_INTERVAL", 5*time.Second),
 
-		TaskDefaultCPUCores: envIntOr("CONQUEST_TASK_DEFAULT_CPU_CORES", 1),
-		TaskDefaultRAMGb:    envFloat64Or("CONQUEST_TASK_DEFAULT_RAM_GB", 2),
-		TaskDefaultDiskGb:   envFloat64Or("CONQUEST_TASK_DEFAULT_DISK_GB", 8),
-		TaskMaxCPUCores:     envIntOr("CONQUEST_TASK_MAX_CPU_CORES", 0),
-		TaskMaxRAMGb:        envFloat64Or("CONQUEST_TASK_MAX_RAM_GB", 0),
-		TaskMaxDiskGb:       envFloat64Or("CONQUEST_TASK_MAX_DISK_GB", 0),
-		TaskMinCPUCores:     envIntOr("CONQUEST_TASK_MIN_CPU_CORES", 0),
-		TaskMinRAMGb:        envFloat64Or("CONQUEST_TASK_MIN_RAM_GB", 0),
-		TaskMinDiskGb:       envFloat64Or("CONQUEST_TASK_MIN_DISK_GB", 0),
+		TaskDefaultCPUCores:      envIntOr("CONQUEST_TASK_DEFAULT_CPU_CORES", 1),
+		TaskDefaultRAMGb:         envFloat64Or("CONQUEST_TASK_DEFAULT_RAM_GB", 2),
+		TaskDefaultDiskGb:        envFloat64Or("CONQUEST_TASK_DEFAULT_DISK_GB", 8),
+		TaskMaxCPUCores:          envIntOr("CONQUEST_TASK_MAX_CPU_CORES", 0),
+		TaskMaxRAMGb:             envFloat64Or("CONQUEST_TASK_MAX_RAM_GB", 0),
+		TaskMaxDiskGb:            envFloat64Or("CONQUEST_TASK_MAX_DISK_GB", 0),
+		TaskRejectOnMaxViolation: envBoolOr("CONQUEST_TASK_REJECT_ON_MAX_VIOLATION", false),
+		TaskMinCPUCores:          envIntOr("CONQUEST_TASK_MIN_CPU_CORES", 0),
+		TaskMinRAMGb:             envFloat64Or("CONQUEST_TASK_MIN_RAM_GB", 0),
+		TaskMinDiskGb:            envFloat64Or("CONQUEST_TASK_MIN_DISK_GB", 0),
 
 		WorkspaceMode:         envOr("CONQUEST_WORKSPACE_MODE", "emptydir"),
 		WorkspaceAccessMode:   envOr("CONQUEST_WORKSPACE_ACCESS_MODE", "RWX"),
@@ -228,4 +243,16 @@ func envCSV(key string) []string {
 		out = append(out, part)
 	}
 	return out
+}
+
+func envBoolOr(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return fallback
+	}
+	return b
 }

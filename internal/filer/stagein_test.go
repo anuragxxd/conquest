@@ -40,6 +40,31 @@ func TestStageInDownloadsDirectoryInputs(t *testing.T) {
 	assertFileContents(t, filepath.Join(base, "1.fa"), ">chr1\nACGT\n")
 }
 
+func TestStageInLocalizesSharedLocalInputsWithoutObjectStore(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CONQUEST_SHARED_WORKSPACE_ROOT", root)
+
+	sourcePath := filepath.Join(root, "workflow", "imports", "tasks.wdl")
+	assertWriteFile(t, sourcePath, "version 1.1\n")
+
+	manifest := StageManifest{
+		Workdir: filepath.Join(root, "workspace"),
+		Inputs: []tes.Input{{
+			URL:  sourcePath,
+			Path: filepath.Join(root, "cromwell-executions", "wf", "call-task", "execution", "tasks.wdl"),
+		}},
+	}
+
+	if ManifestNeedsObjectStoreForStageIn(manifest) {
+		t.Fatal("shared-local inputs should not require object storage")
+	}
+	if err := StageIn(context.Background(), nil, manifest, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("StageIn error = %v", err)
+	}
+
+	assertFileContents(t, manifest.Inputs[0].Path, "version 1.1\n")
+}
+
 func assertFileContents(t *testing.T, path, want string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -48,5 +73,15 @@ func assertFileContents(t *testing.T, path, want string) {
 	}
 	if string(data) != want {
 		t.Fatalf("contents of %q = %q, want %q", path, string(data), want)
+	}
+}
+
+func assertWriteFile(t *testing.T, path, want string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir %q: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(want), 0644); err != nil {
+		t.Fatalf("write %q: %v", path, err)
 	}
 }
