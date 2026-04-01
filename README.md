@@ -1,6 +1,6 @@
 # Conquest
 
-Workflow execution service. Runs Nextflow and Snakemake
+Workflow execution service. Runs Nextflow, WDL, and Snakemake
 pipelines on Kubernetes through GA4GH-standard APIs.
 
 Conquest implements a [WES](https://ga4gh.github.io/workflow-execution-service-schemas/) (Workflow Execution Service) control plane
@@ -25,7 +25,7 @@ depending on how it's invoked.
                                 | K8s Job              | poll
                       +---------v----------+     +-----+------+
                       |    Runner Pod      |     | Reconciler |
-                      |  (Nextflow / SMK)  |     | (K8s > DB) |
+                      | (NF / WDL / SMK)   |     | (K8s > DB) |
                       +---------+----------+     +------------+
                                 |
                          TES v1.1 (internal)
@@ -49,7 +49,7 @@ depending on how it's invoked.
 1. Client submits a workflow via the **WES API**.
 2. The **Run Controller** picks the right engine adapter, persists the run in
    Postgres, and creates a **Runner Job** on Kubernetes.
-3. The runner executes the workflow engine (Nextflow or Snakemake), which
+3. The runner executes the workflow engine (Nextflow, WDL, or Snakemake), which
    submits individual tasks back to Conquest's **internal TES API**.
 4. Each task becomes a **K8s Job** — an init container stages inputs from S3,
    the executor runs the user command, then outputs are uploaded back to S3.
@@ -67,13 +67,20 @@ compute layer.
 | Nextflow  | 25.04.3  |         | TES dispatch via [`nf-ga4gh`][nf-ga4gh] plugin       |
 | Nextflow  | 25.10.2  |         | TES dispatch via [`nf-ga4gh`][nf-ga4gh] plugin       |
 | Nextflow  | 25.10.4  |         | TES dispatch via [`nf-ga4gh`][nf-ga4gh] plugin       |
+| WDL       | 1.12.1   | Yes     | [`miniwdl`][miniwdl] runner with TES-dispatch container backend |
 | Snakemake | 9.17.3   | Yes     | TES dispatch via `conquest-tes` executor plugin      |
 | Snakemake | 7.32.4   |         | Local execution in runner pod                        |
 
 [nf-ga4gh]: https://github.com/nextflow-io/nf-ga4gh
+[miniwdl]: https://miniwdl.readthedocs.io/
 
 Nextflow versions use the upstream [`nf-ga4gh`][nf-ga4gh] plugin to submit
 tasks to Conquest's TES API.
+
+WDL uses a custom [`miniwdl`][miniwdl] container backend plugin (`python/miniwdl_conquest_tes`)
+which dispatches every WDL task to Conquest's internal TES API. The WDL engine
+name is `wdl`, and the current supported WDL language versions are `1.0` and
+`1.1`.
 
 The `conquest-tes` executor plugin (under `python/` in this repo) is a custom
 Snakemake executor based on the upstream
@@ -91,11 +98,12 @@ request — if omitted, the default is used.
 
 ## Task Resource Control
 
-Both engines dispatch work through TES, so users control CPU, memory, and disk
-for each task pod directly in their workflow. Nextflow uses process directives
-(`cpus`, `memory`, `disk`); Snakemake uses rule resources (`cpus`, `mem_gb`,
-`disk_gb`). The engine plugin translates these to TES resource fields, and
-Conquest maps them to Kubernetes resource requests/limits.
+All supported engines dispatch work through TES, so users control CPU, memory,
+and disk for each task pod directly in their workflow. Nextflow uses process
+directives (`cpus`, `memory`, `disk`); WDL uses task runtime attributes such as
+`cpu`, `memory`, `disks`/`disk`, and `docker`; Snakemake uses rule resources
+(`cpus`, `mem_gb`, `disk_gb`). The engine plugin translates these to TES
+resource fields, and Conquest maps them to Kubernetes resource requests/limits.
 
 A task policy layer fills in defaults when omitted (1 CPU, 2 GB RAM, 8 GB
 disk) and enforces platform-level floors and ceilings. See
@@ -217,6 +225,7 @@ No config files.
 | `CONQUEST_WORKSPACE_SIZE`           | `10Gi`               | PVC size                          |
 | `CONQUEST_RECONCILER_INTERVAL`      | `5s`                 | How often reconcilers poll K8s    |
 | `CONQUEST_RUNNER_IMAGE`             | —                    | Default Nextflow runner image     |
+| `CONQUEST_WDL_RUNNER_IMAGE`         | —                    | Default WDL runner image          |
 | `CONQUEST_SNAKEMAKE_RUNNER_IMAGE`   | —                    | Default Snakemake runner image    |
 
 See [`internal/config/config.go`](internal/config/config.go) for the full list.
@@ -238,6 +247,7 @@ Docker images and a Helm chart:
 ```bash
 make docker-server          # Server image
 make docker-nf-runner-all   # All Nextflow runner images (4 versions)
+make docker-wdl-runner      # WDL runner image
 make docker-smk-runner-all  # All Snakemake runner images (2 versions)
 make docker-all             # Everything
 ```
