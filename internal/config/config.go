@@ -25,8 +25,8 @@ type Config struct {
 	RunnerImage                   string
 	InternalBaseURL               string
 	NextflowRunnerImages          map[string]string
-	CromwellRunnerImage           string
-	CromwellRunnerImages          map[string]string
+	WDLRunnerImage                string
+	WDLRunnerImages               map[string]string
 	SnakemakeRunnerImage          string
 	SnakemakeTaskImage            string
 	SnakemakeRunnerImages         map[string]string // version -> runner image overrides
@@ -69,10 +69,10 @@ func Load() (*Config, error) {
 		}
 	}
 
-	cromwellRunnerImages := map[string]string{}
-	if raw := strings.TrimSpace(os.Getenv("CONQUEST_CROMWELL_RUNNER_IMAGES")); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &cromwellRunnerImages); err != nil {
-			return nil, fmt.Errorf("parse CONQUEST_CROMWELL_RUNNER_IMAGES: %w", err)
+	wdlRunnerImages := map[string]string{}
+	if raw := strings.TrimSpace(os.Getenv("CONQUEST_WDL_RUNNER_IMAGES")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &wdlRunnerImages); err != nil {
+			return nil, fmt.Errorf("parse CONQUEST_WDL_RUNNER_IMAGES: %w", err)
 		}
 	}
 
@@ -103,8 +103,8 @@ func Load() (*Config, error) {
 		RunnerImage:                   envOr("CONQUEST_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner:latest"),
 		InternalBaseURL:               envOr("CONQUEST_INTERNAL_BASE_URL", "http://conquest.services.svc"),
 		NextflowRunnerImages:          nextflowRunnerImages,
-		CromwellRunnerImage:           envOr("CONQUEST_CROMWELL_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-cromwell-92-runner:latest"),
-		CromwellRunnerImages:          cromwellRunnerImages,
+		WDLRunnerImage:                envOr("CONQUEST_WDL_RUNNER_IMAGE", "harbor.pacificanalytics.com/pacificanalytics/conquest-wdl-runner:latest"),
+		WDLRunnerImages:               wdlRunnerImages,
 		SnakemakeRunnerImage:          strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGE")),
 		SnakemakeTaskImage:            strings.TrimSpace(os.Getenv("CONQUEST_SNAKEMAKE_TASK_IMAGE")),
 		SnakemakeRunnerImages:         snakemakeRunnerImages,

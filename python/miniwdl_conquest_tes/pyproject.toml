@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miniwdl-conquest-tes"
+version = "0.1.0"
+description = "miniwdl container backend plugin that dispatches WDL tasks to a GA4GH TES endpoint"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+    "miniwdl>=1.12,<2",
+    "py-tes>=0.4.2,<2",
+    "requests>=2.28,<3",
+]
+
+[project.entry-points."miniwdl.plugin.container_backend"]
+conquest_tes = "miniwdl_conquest_tes:ConquestTESContainer"
+
+[tool.setuptools.packages.find]
+include = ["miniwdl_conquest_tes*"]

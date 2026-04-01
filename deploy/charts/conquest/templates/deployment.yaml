@@ -150,8 +150,8 @@ spec:
             # Used by the run backend for Nextflow runner Jobs.
             - name: CONQUEST_RUNNER_IMAGE
               value: "{{ .Values.conquest.runnerImage.repository }}:{{ .Values.conquest.runnerImage.tag }}"
-            - name: CONQUEST_CROMWELL_RUNNER_IMAGE
-              value: "{{ .Values.conquest.cromwellRunnerImage.repository }}:{{ .Values.conquest.cromwellRunnerImage.tag }}"
+            - name: CONQUEST_WDL_RUNNER_IMAGE
+              value: "{{ .Values.conquest.wdlRunnerImage.repository }}:{{ .Values.conquest.wdlRunnerImage.tag }}"
             {{- if .Values.conquest.snakemakeRunnerImage.repository }}
             - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGE
               value: "{{ .Values.conquest.snakemakeRunnerImage.repository }}:{{ .Values.conquest.snakemakeRunnerImage.tag }}"
@@ -178,9 +178,9 @@ spec:
             - name: CONQUEST_NEXTFLOW_RUNNER_IMAGES
               value: {{ toJson .Values.conquest.nextflowRunnerImages | quote }}
             {{- end }}
-            {{- if .Values.conquest.cromwellRunnerImages }}
-            - name: CONQUEST_CROMWELL_RUNNER_IMAGES
-              value: {{ toJson .Values.conquest.cromwellRunnerImages | quote }}
+            {{- if .Values.conquest.wdlRunnerImages }}
+            - name: CONQUEST_WDL_RUNNER_IMAGES
+              value: {{ toJson .Values.conquest.wdlRunnerImages | quote }}
             {{- end }}
             {{- if .Values.conquest.snakemakeRunnerImages }}
             - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGES

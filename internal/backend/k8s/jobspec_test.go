@@ -267,7 +267,7 @@ func TestBuildJobSpec_PVCIsolatedTaskMountsSubpath(t *testing.T) {
 func TestBuildJobSpec_PVCSharedTaskMountsSharedSubpath(t *testing.T) {
 	tesPayload := json.RawMessage(`{
 		"name": "test-task",
-		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/work"}],
+		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/workspace/work"}],
 		"tags": {"conquest_workspace_scope": "shared", "conquest_run_id": "run-123"}
 	}`)
 
@@ -292,24 +292,29 @@ func TestBuildJobSpec_PVCSharedTaskMountsSharedSubpath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Shared-scope task should use subPath: shared mounted at /workspace.
+	// Shared-scope task with a workdir already under /workspace should only
+	// mount the shared PVC root once, avoiding a nested mount that would
+	// shadow the populated workdir contents.
 	executor := job.Spec.Template.Spec.Containers[0]
+	sharedMounts := 0
 	for _, mount := range executor.VolumeMounts {
 		if mount.Name == "workdir" && mount.SubPath == "shared" {
+			sharedMounts++
 			if mount.MountPath != "/workspace" {
 				t.Fatalf("shared task mountPath = %q, want '/workspace'", mount.MountPath)
 			}
-			return
 		}
 	}
-	t.Fatal("executor should have workdir mount with subPath=shared")
+	if sharedMounts != 1 {
+		t.Fatalf("expected exactly one shared workdir mount, got %+v", executor.VolumeMounts)
+	}
 }
 
 func TestBuildJobSpec_PVCSharedTaskAddsSecondaryMountForCustomWorkdir(t *testing.T) {
 	tesPayload := json.RawMessage(`{
 		"name": "test-task",
 		"executors": [{"image": "ubuntu:24.04", "command": ["bash", "-c", "echo hi"], "workdir": "/custom/workdir"}],
-		"inputs": [{"url": "/workspace/cromwell-executions/wf/call-task/execution/script", "path": "/custom/workdir/script"}],
+		"inputs": [{"url": "/workspace/miniwdl-runs/wf/call-task/execution/script", "path": "/custom/workdir/script"}],
 		"tags": {"conquest_workspace_scope": "shared", "conquest_run_id": "run-123"}
 	}`)
 

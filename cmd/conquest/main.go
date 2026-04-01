@@ -124,10 +124,10 @@ func run(log *slog.Logger) error {
 			S3Region:              cfg.S3Region,
 		}),
 	}
-	if cfg.CromwellRunnerImage != "" || len(cfg.CromwellRunnerImages) > 0 {
+	if cfg.WDLRunnerImage != "" || len(cfg.WDLRunnerImages) > 0 {
 		adapters = append(adapters, adapter.NewWDLRunAdapter(adapter.WDLRunAdapterConfig{
-			DefaultRunnerImage:    cfg.CromwellRunnerImage,
-			RunnerImagesByVersion: cfg.CromwellRunnerImages,
+			DefaultRunnerImage:    cfg.WDLRunnerImage,
+			RunnerImagesByVersion: cfg.WDLRunnerImages,
 			InternalBaseURL:       cfg.InternalBaseURL,
 			S3Endpoint:            cfg.S3Endpoint,
 			S3Bucket:              cfg.S3Bucket,

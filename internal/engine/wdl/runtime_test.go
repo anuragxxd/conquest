@@ -19,6 +19,13 @@ func TestResolveRuntime_DefaultAndSupported(t *testing.T) {
 	}
 }
 
+func TestResolveRuntime_RejectsUnsupported(t *testing.T) {
+	_, err := ResolveRuntime("92")
+	if err == nil {
+		t.Fatal("expected error for unsupported version '92'")
+	}
+}
+
 func TestSharedLocalPathFromURL_UsesWorkspaceRootOverride(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CONQUEST_SHARED_WORKSPACE_ROOT", root)
@@ -41,5 +48,16 @@ func TestSharedLocalPathFromURL_UsesWorkspaceRootOverride(t *testing.T) {
 
 	if _, ok := SharedLocalPathFromURL(t.TempDir() + "/outside.txt"); ok {
 		t.Fatal("expected path outside workspace root to be rejected")
+	}
+}
+
+func TestMiniwdlRunDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CONQUEST_SHARED_WORKSPACE_ROOT", root)
+
+	got := MiniwdlRunDir()
+	want := root + "/miniwdl-runs"
+	if got != want {
+		t.Fatalf("MiniwdlRunDir = %q, want %q", got, want)
 	}
 }

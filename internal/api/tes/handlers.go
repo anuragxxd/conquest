@@ -294,11 +294,11 @@ func isSupportedTaskInputURL(raw string, options taskValidationOptions) bool {
 }
 
 func validationOptionsForRun(run *domain.Run) taskValidationOptions {
-	return taskValidationOptions{AllowSharedLocalPaths: run != nil && run.WorkflowEngine == "cromwell"}
+	return taskValidationOptions{AllowSharedLocalPaths: run != nil && run.Workspace.IsPVC()}
 }
 
 func ensureInternalRunTaskDefaults(req *Task, run *domain.Run) {
-	if run == nil || run.WorkflowEngine != "cromwell" {
+	if run == nil || !run.Workspace.IsPVC() {
 		return
 	}
 	if req.Tags == nil {

@@ -1,6 +1,6 @@
 .PHONY: build test test-short lint fmt vet clean tidy \
 	docker-server docker-nf-runner docker-nf-runner-all \
-	docker-cromwell-runner docker-wdl-runner docker-smk-runner docker-smk-v7-runner docker-smk-runner-all docker-all \
+	docker-wdl-runner docker-smk-runner docker-smk-v7-runner docker-smk-runner-all docker-all \
 	docker-build docker-runner-build docker-snakemake-runner-build \
 	docker-snakemake-runner-build-v7 docker-snakemake-runner-build-all docker-wdl-runner-build
 
@@ -16,7 +16,7 @@ NXF_PLUGINS_ALLOWED ?= nf-ga4gh,nf-amazon,nf-schema,nf-core-utils,nf-fgbio,nf-pr
 
 SNAKEMAKE_VER ?= 9.17.3
 SNAKEMAKE_V7_VER ?= 7.32.4
-CROMWELL_VER ?= 92
+MINIWDL_VER ?= 1.12.1
 
 build:
 	$(GO) build ./...
@@ -70,16 +70,12 @@ docker-nf-runner-all:
 		$(MAKE) docker-nf-runner NXF_VER=$$ver TAG=$(TAG) || exit $$?; \
 	done
 
-# Build and push the default Snakemake runner image.
-docker-cromwell-runner:
+# Build and push the WDL (miniwdl) runner image.
+docker-wdl-runner:
 	docker buildx build --platform linux/amd64 \
 		-f docker/wdl-runner/Dockerfile \
-		--build-arg CROMWELL_VERSION=$(CROMWELL_VER) \
-		-t $(REGISTRY)/conquest-cromwell-$(CROMWELL_VER)-runner:$(TAG) \
+		-t $(REGISTRY)/conquest-wdl-runner:$(TAG) \
 		--push .
-
-# Friendly alias for the WDL/Cromwell runner image target.
-docker-wdl-runner: docker-cromwell-runner
 
 # Build and push the default Snakemake runner image.
 docker-smk-runner:
@@ -106,7 +102,7 @@ docker-smk-runner-all:
 docker-all:
 	$(MAKE) docker-server TAG=$(TAG)
 	$(MAKE) docker-nf-runner-all TAG=$(TAG)
-	$(MAKE) docker-cromwell-runner TAG=$(TAG)
+	$(MAKE) docker-wdl-runner TAG=$(TAG)
 	$(MAKE) docker-smk-runner-all TAG=$(TAG)
 
 # Backward-compatible aliases for the previous target names.
@@ -120,4 +116,4 @@ docker-snakemake-runner-build-v7: docker-smk-v7-runner
 
 docker-snakemake-runner-build-all: docker-smk-runner-all
 
-docker-wdl-runner-build: docker-cromwell-runner
+docker-wdl-runner-build: docker-wdl-runner

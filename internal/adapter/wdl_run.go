@@ -32,7 +32,7 @@ func NewWDLRunAdapter(cfg WDLRunAdapterConfig) *WDLRunAdapter {
 }
 
 func (a *WDLRunAdapter) Name() string {
-	return "cromwell"
+	return "wdl"
 }
 
 func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout storage.Layout) (*PreparedRun, error) {
@@ -57,7 +57,7 @@ func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout s
 
 	runnerImage := a.resolveRunnerImage(runtime.Version)
 	if runnerImage == "" {
-		return nil, &ValidationError{Field: "workflow_engine_version", Msg: fmt.Sprintf("cromwell version %q is not configured for execution in this deployment", runtime.Version)}
+		return nil, &ValidationError{Field: "workflow_engine_version", Msg: fmt.Sprintf("miniwdl version %q is not configured for execution in this deployment", runtime.Version)}
 	}
 
 	resolved, err := source.ResolveRepository(req.WorkflowURL, wdlParams.Revision)
@@ -120,14 +120,13 @@ func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout s
 	args := []string{
 		"runner", "wdl",
 		"--run-id", runID,
-		"--cromwell-version", runtime.Version,
 		"--repo-url", resolved.RepoURL,
 		"--revision", wdlParams.Revision,
 		"--main-workflow-path", wdlParams.MainWorkflowPath,
 		"--output-dir-prefix", layout.OutputsDirURI(runID),
 		"--run-log-key", layout.RunLog(runID),
 		"--workflow-outputs-key", layout.WorkflowOutputs(runID),
-		"--cromwell-metadata-key", layout.CromwellMetadata(runID),
+		"--engine-metadata-key", layout.EngineMetadata(runID),
 		"--internal-tes-base", strings.TrimRight(a.cfg.InternalBaseURL, "/") + "/internal/runs/" + runID,
 		"--s3-endpoint", a.cfg.S3Endpoint,
 		"--s3-bucket", a.cfg.S3Bucket,

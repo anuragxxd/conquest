@@ -15,8 +15,8 @@ type Runtime struct {
 }
 
 var (
-	defaultVersion         = "92"
-	supportedVersions      = []string{"92"}
+	defaultVersion         = "1.12.1"
+	supportedVersions      = []string{"1.12.1"}
 	supportedWDLVersions   = []string{"1.0", "1.1"}
 	sharedWorkspaceRootEnv = "CONQUEST_SHARED_WORKSPACE_ROOT"
 )
@@ -49,7 +49,7 @@ func ResolveRuntime(requested string) (Runtime, error) {
 		}
 	}
 
-	return Runtime{}, fmt.Errorf("unsupported cromwell version %q; supported versions: %s", version, strings.Join(supportedVersions, ", "))
+	return Runtime{}, fmt.Errorf("unsupported miniwdl version %q; supported versions: %s", version, strings.Join(supportedVersions, ", "))
 }
 
 func ValidateWorkflowVersion(version string) error {
@@ -69,8 +69,8 @@ func SharedWorkspaceRoot() string {
 	return defaultWorkspaceRoot
 }
 
-func CromwellExecutionRoot() string {
-	return path.Join(SharedWorkspaceRoot(), "cromwell-executions")
+func MiniwdlRunDir() string {
+	return path.Join(SharedWorkspaceRoot(), "miniwdl-runs")
 }
 
 func IsSharedLocalPath(raw string) bool {

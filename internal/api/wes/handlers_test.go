@@ -16,13 +16,13 @@ import (
 	"github.com/anuragxxd/conquest/internal/storage"
 )
 
-func TestGetServiceInfo_IncludesWDLWhenCromwellIsConfigured(t *testing.T) {
+func TestGetServiceInfo_IncludesWDLWhenWDLEngineIsConfigured(t *testing.T) {
 	ctrl := controller.NewRunController(
 		&wesRunStoreStub{},
 		&wesTaskStoreStub{},
 		&wesEventStoreStub{},
 		storage.Layout{Bucket: "conquest", Version: "v1"},
-		adapter.NewRegistry(&wesAdapterStub{name: "cromwell"}),
+		adapter.NewRegistry(&wesAdapterStub{name: "wdl"}),
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
 	handler := NewHandler(ctrl)
@@ -47,8 +47,8 @@ func TestGetServiceInfo_IncludesWDLWhenCromwellIsConfigured(t *testing.T) {
 	if len(versions.WorkflowTypeVersion) != 2 || versions.WorkflowTypeVersion[0] != "1.0" || versions.WorkflowTypeVersion[1] != "1.1" {
 		t.Fatalf("WDL versions = %v", versions.WorkflowTypeVersion)
 	}
-	if info.WorkflowEngineVersions["cromwell"] != "92" {
-		t.Fatalf("cromwell version = %q", info.WorkflowEngineVersions["cromwell"])
+	if info.WorkflowEngineVersions["wdl"] != "1.12.1" {
+		t.Fatalf("wdl engine version = %q", info.WorkflowEngineVersions["wdl"])
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 
 func TestWDLRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 	adapter := NewWDLRunAdapter(WDLRunAdapterConfig{
-		DefaultRunnerImage:   "example.com/conquest-cromwell-92-runner:latest",
+		DefaultRunnerImage:   "example.com/conquest-wdl-runner:latest",
 		InternalBaseURL:      "http://conquest.services.svc.cluster.local",
 		S3Endpoint:           "http://minio.platform.svc.cluster.local:9000",
 		S3Bucket:             "conquest",
@@ -32,13 +32,13 @@ func TestWDLRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if prepared.WorkflowEngine != "cromwell" {
+	if prepared.WorkflowEngine != "wdl" {
 		t.Fatalf("workflow engine = %q", prepared.WorkflowEngine)
 	}
-	if prepared.WorkflowEngineVersion != "92" {
+	if prepared.WorkflowEngineVersion != "1.12.1" {
 		t.Fatalf("workflow engine version = %q", prepared.WorkflowEngineVersion)
 	}
-	if prepared.RunnerSpec.Image != "example.com/conquest-cromwell-92-runner:latest" {
+	if prepared.RunnerSpec.Image != "example.com/conquest-wdl-runner:latest" {
 		t.Fatalf("runner image = %q", prepared.RunnerSpec.Image)
 	}
 
@@ -54,10 +54,10 @@ func TestWDLRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 	if normalized.WorkflowURL != "https://github.com/acme-org/my-wdl-pipelines" {
 		t.Fatalf("workflow_url = %q", normalized.WorkflowURL)
 	}
-	if normalized.WorkflowEngine != "cromwell" {
+	if normalized.WorkflowEngine != "wdl" {
 		t.Fatalf("workflow_engine = %q", normalized.WorkflowEngine)
 	}
-	if normalized.WorkflowEngineVersion != "92" {
+	if normalized.WorkflowEngineVersion != "1.12.1" {
 		t.Fatalf("workflow_engine_version = %q", normalized.WorkflowEngineVersion)
 	}
 
@@ -84,7 +84,7 @@ func TestWDLRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 }
 
 func TestWDLRunAdapter_PrepareRun_RejectsEmptyDirWorkspace(t *testing.T) {
-	adapter := NewWDLRunAdapter(WDLRunAdapterConfig{DefaultRunnerImage: "example.com/cromwell:latest", WorkspaceMode: "emptydir"})
+	adapter := NewWDLRunAdapter(WDLRunAdapterConfig{DefaultRunnerImage: "example.com/wdl-runner:latest", WorkspaceMode: "emptydir"})
 
 	_, err := adapter.PrepareRun("run-123", SubmissionRequest{
 		WorkflowType:             "WDL",
@@ -104,8 +104,8 @@ func TestWDLRunAdapter_PrepareRun_RejectsEmptyDirWorkspace(t *testing.T) {
 	}
 }
 
-func TestInferEngine_WDLDefaultsToCromwell(t *testing.T) {
-	if got := InferEngine("WDL", ""); got != "cromwell" {
+func TestInferEngine_WDLDefaultsToWDL(t *testing.T) {
+	if got := InferEngine("WDL", ""); got != "wdl" {
 		t.Fatalf("InferEngine(WDL) = %q", got)
 	}
 }

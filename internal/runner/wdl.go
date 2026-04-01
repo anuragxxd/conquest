@@ -23,14 +23,13 @@ var wdlImportPattern = regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"`)
 
 type WDLConfig struct {
 	RunID                string
-	CromwellVersion      string
 	RepoURL              string
 	Revision             string
 	MainWorkflowPath     string
 	OutputDirPrefix      string
 	RunLogKey            string
 	WorkflowOutputsKey   string
-	CromwellMetadataKey  string
+	EngineMetadataKey    string
 	InternalTESBase      string
 	S3Endpoint           string
 	S3Bucket             string
@@ -38,15 +37,9 @@ type WDLConfig struct {
 	AllowExternalImports bool
 }
 
-type cromwellMetadata struct {
-	Status  string          `json:"status"`
-	Outputs json.RawMessage `json:"outputs"`
-}
-
 func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
 	log.Info("starting wdl runner",
 		"run_id", cfg.RunID,
-		"cromwell_version", cfg.CromwellVersion,
 		"repo_url", cfg.RepoURL,
 		"revision", cfg.Revision,
 		"main_workflow_path", cfg.MainWorkflowPath,
@@ -80,96 +73,153 @@ func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
 		}
 	}
 
-	multiOut := io.MultiWriter(os.Stdout, logFile)
-	multiErr := io.MultiWriter(os.Stderr, logFile)
-	if err := validateWDLSource(ctx, mainWorkflow, multiOut, multiErr); err != nil {
-		return err
-	}
-
 	inputsPath := filepath.Join(workspaceDir, "inputs.json")
 	if err := writeWDLInputsFile(inputsPath); err != nil {
 		return err
 	}
 
-	configPath := filepath.Join(workspaceDir, "cromwell.conf")
-	if err := os.WriteFile(configPath, []byte(generateCromwellConfig(cfg)), 0644); err != nil {
-		return fmt.Errorf("write cromwell config: %w", err)
+	configPath := filepath.Join(workspaceDir, "miniwdl.cfg")
+	if err := os.WriteFile(configPath, []byte(generateMiniwdlConfig(cfg)), 0644); err != nil {
+		return fmt.Errorf("write miniwdl config: %w", err)
 	}
 
-	optionsPath := filepath.Join(workspaceDir, "workflow-options.json")
-	if err := os.WriteFile(optionsPath, []byte(generateCromwellOptions()), 0644); err != nil {
-		return fmt.Errorf("write workflow options: %w", err)
+	multiOut := io.MultiWriter(os.Stdout, logFile)
+	multiErr := io.MultiWriter(os.Stderr, logFile)
+
+	runDir := wdlengine.MiniwdlRunDir()
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		return fmt.Errorf("create miniwdl run dir: %w", err)
 	}
 
-	metadataPath := filepath.Join(workspaceDir, "cromwell-metadata.json")
 	cmdArgs := []string{
-		"-Dconfig.file=" + configPath,
-		"-jar", "/opt/cromwell/cromwell.jar",
-		"run", mainWorkflow,
-		"--inputs", inputsPath,
-		"--options", optionsPath,
-		"--metadata-output", metadataPath,
+		"run",
+		mainWorkflow,
+		"-i", inputsPath,
+		"--cfg", configPath,
+		"--dir", runDir,
+		"--verbose",
 	}
-	cmd := exec.CommandContext(ctx, "java", cmdArgs...)
+	cmd := exec.CommandContext(ctx, "miniwdl", cmdArgs...)
 	cmd.Dir = workflowDir
 	cmd.Stdout = multiOut
 	cmd.Stderr = multiErr
 
-	log.Info("executing cromwell", "cmd", "java "+strings.Join(cmdArgs, " "))
+	// The TES plugin reads these env vars to dispatch tasks to Conquest.
+	tesURL := strings.TrimRight(cfg.InternalTESBase, "/") + "/ga4gh/tes/v1"
+	cmd.Env = append(os.Environ(),
+		"CONQUEST_INTERNAL_TES_URL="+tesURL,
+		"CONQUEST_RUN_ID="+cfg.RunID,
+		// Force copy-input-files so that files are physically on the PVC at
+		// the paths the command string references.
+		"MINIWDL__FILE_IO__COPY_INPUT_FILES=true",
+		// Disable the download cache to avoid permission conflicts across
+		// concurrent runs sharing the same PVC.
+		"MINIWDL__DOWNLOAD_CACHE__PUT=false",
+		"MINIWDL__DOWNLOAD_CACHE__GET=false",
+	)
+
+	log.Info("executing miniwdl", "cmd", "miniwdl "+strings.Join(cmdArgs, " "))
 	runErr := cmd.Run()
 
+	// Always attempt to upload the run log, even on failure.
 	uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, logFilePath, log)
 	if uploadErr != nil {
 		log.Error("failed to upload run log", "err", uploadErr)
 	}
 
-	metadata, metadataErr := readCromwellMetadata(metadataPath)
+	// Locate the miniwdl output directory (latest run under runDir).
+	miniwdlOutDir, metaErr := findMiniwdlOutputDir(runDir)
+
 	client, clientErr := newS3Client(cfg.S3Endpoint, cfg.S3Region)
-	if metadataErr == nil {
+
+	// Upload engine metadata (the miniwdl outputs.json) if available.
+	if metaErr == nil {
+		outputsFile := filepath.Join(miniwdlOutDir, "outputs.json")
 		if clientErr != nil {
 			if runErr == nil {
 				return fmt.Errorf("create S3 client: %w", clientErr)
 			}
 			log.Error("failed to create S3 client for metadata upload", "err", clientErr)
-		} else if err := uploadFile(ctx, client, cfg.S3Bucket, cfg.CromwellMetadataKey, metadataPath); err != nil {
-			if runErr == nil {
-				return fmt.Errorf("upload cromwell metadata: %w", err)
+		} else if _, statErr := os.Stat(outputsFile); statErr == nil {
+			if err := uploadFile(ctx, client, cfg.S3Bucket, cfg.EngineMetadataKey, outputsFile); err != nil {
+				if runErr == nil {
+					return fmt.Errorf("upload engine metadata: %w", err)
+				}
+				log.Error("failed to upload engine metadata", "err", err)
 			}
-			log.Error("failed to upload cromwell metadata", "err", err)
 		}
 	}
 
 	if runErr != nil {
-		if metadataErr == nil && strings.TrimSpace(metadata.Status) != "" {
-			return fmt.Errorf("cromwell execution failed with status %s: %w", metadata.Status, runErr)
-		}
-		if metadataErr != nil {
-			return fmt.Errorf("cromwell execution failed: %w (metadata unavailable: %v)", runErr, metadataErr)
-		}
-		return fmt.Errorf("cromwell execution failed: %w", runErr)
+		return fmt.Errorf("miniwdl execution failed: %w", runErr)
 	}
-	if metadataErr != nil {
-		return metadataErr
-	}
-	if metadata.Status != "Succeeded" {
-		return fmt.Errorf("cromwell completed with unexpected status %q", metadata.Status)
+	if metaErr != nil {
+		return fmt.Errorf("locate miniwdl output directory: %w", metaErr)
 	}
 	if clientErr != nil {
 		return fmt.Errorf("create S3 client: %w", clientErr)
 	}
 
-	outputsJSON, err := persistWorkflowOutputs(ctx, client, cfg, metadata.Outputs, log)
+	// Read and persist workflow outputs.
+	outputsFile := filepath.Join(miniwdlOutDir, "outputs.json")
+	outputsJSON, err := readMiniwdlOutputs(outputsFile)
 	if err != nil {
 		return err
 	}
-	if len(outputsJSON) > 0 {
-		if err := putArtifact(ctx, client, cfg.S3Bucket, cfg.WorkflowOutputsKey, outputsJSON); err != nil {
+
+	persistedJSON, err := persistWorkflowOutputs(ctx, client, cfg, outputsJSON, log)
+	if err != nil {
+		return err
+	}
+	if len(persistedJSON) > 0 {
+		if err := putArtifact(ctx, client, cfg.S3Bucket, cfg.WorkflowOutputsKey, persistedJSON); err != nil {
 			return fmt.Errorf("upload workflow outputs artifact: %w", err)
 		}
 	}
 
 	log.Info("wdl runner completed successfully", "run_id", cfg.RunID)
 	return nil
+}
+
+// findMiniwdlOutputDir locates the latest miniwdl run directory. miniwdl
+// creates a timestamped subdirectory under the --dir path for each run.
+func findMiniwdlOutputDir(runDir string) (string, error) {
+	entries, err := os.ReadDir(runDir)
+	if err != nil {
+		return "", fmt.Errorf("read miniwdl run dir: %w", err)
+	}
+
+	// miniwdl creates directories with a timestamp prefix, so sorting in
+	// reverse lexicographic order gives us the most recent run first.
+	var latest string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if latest == "" || name > latest {
+			latest = name
+		}
+	}
+	if latest == "" {
+		return "", fmt.Errorf("no run subdirectory found in %s", runDir)
+	}
+	return filepath.Join(runDir, latest), nil
+}
+
+// readMiniwdlOutputs reads the outputs.json produced by miniwdl and returns
+// the raw JSON bytes. The file maps output names to their typed values.
+func readMiniwdlOutputs(outputsFile string) (json.RawMessage, error) {
+	content, err := os.ReadFile(outputsFile)
+	if err != nil {
+		return nil, fmt.Errorf("read miniwdl outputs: %w", err)
+	}
+	// Validate that it parses as JSON.
+	var raw json.RawMessage
+	if err := json.Unmarshal(content, &raw); err != nil {
+		return nil, fmt.Errorf("parse miniwdl outputs: %w", err)
+	}
+	return raw, nil
 }
 
 func resolveMainWorkflowPath(workflowDir, relativePath string) (string, error) {
@@ -249,16 +299,6 @@ func validateRepositoryImports(mainWorkflowPath, workflowRoot string) error {
 	return walk(mainWorkflowPath)
 }
 
-func validateWDLSource(ctx context.Context, mainWorkflowPath string, stdout, stderr io.Writer) error {
-	cmd := exec.CommandContext(ctx, "java", "-jar", "/opt/cromwell/womtool.jar", "validate", mainWorkflowPath)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("womtool validation failed: %w", err)
-	}
-	return nil
-}
-
 func writeWDLInputsFile(destination string) error {
 	var workflowParams map[string]any
 	if raw := strings.TrimSpace(os.Getenv("CONQUEST_WORKFLOW_PARAMS")); raw != "" {
@@ -280,53 +320,22 @@ func writeWDLInputsFile(destination string) error {
 	return nil
 }
 
-func generateCromwellConfig(cfg WDLConfig) string {
-	endpoint := strings.TrimRight(cfg.InternalTESBase, "/") + "/ga4gh/tes/v1/tasks"
-	root := wdlengine.CromwellExecutionRoot()
-	return fmt.Sprintf(`backend {
-  default = "TES"
-  providers {
-    TES {
-      actor-factory = "cromwell.backend.impl.tes.TesBackendLifecycleActorFactory"
-      config {
-        endpoint = %q
-        root = %q
-        dockerRoot = %q
-        output-mode = "root"
-        glob-link-command = "ls -L GLOB_PATTERN 2> /dev/null | xargs -I ? ln -s ? GLOB_DIRECTORY"
-        use_tes_11_preview_backend_parameters = false
-        poll-backoff {
-          min = "15 seconds"
-          max = "60 seconds"
-          multiplier = 1.2
-          randomization-factor = 0.1
-        }
-      }
-    }
-  }
-}
-`, endpoint, root, root)
-}
+func generateMiniwdlConfig(cfg WDLConfig) string {
+	return `[scheduler]
+container_backend = conquest_tes
 
-func generateCromwellOptions() string {
-	options := map[string]any{
-		"read_from_cache": false,
-		"write_to_cache":  false,
-	}
-	content, _ := json.MarshalIndent(options, "", "  ")
-	return string(content)
-}
+[file_io]
+copy_input_files = true
+output_hardlinks = false
 
-func readCromwellMetadata(path string) (*cromwellMetadata, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read cromwell metadata: %w", err)
-	}
-	metadata := &cromwellMetadata{}
-	if err := json.Unmarshal(content, metadata); err != nil {
-		return nil, fmt.Errorf("parse cromwell metadata: %w", err)
-	}
-	return metadata, nil
+[task_runtime]
+defaults = {"docker": "ubuntu:22.04"}
+command_shell = /bin/bash
+
+[call_cache]
+put = false
+get = false
+`
 }
 
 func persistWorkflowOutputs(ctx context.Context, client objstore.Client, cfg WDLConfig, outputs json.RawMessage, log *slog.Logger) ([]byte, error) {

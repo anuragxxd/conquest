@@ -65,10 +65,10 @@ func (h *Handler) GetServiceInfo(w http.ResponseWriter, r *http.Request) {
 			workflowTypes["SMK"] = TypeVersions{WorkflowTypeVersion: smkengine.SupportedVersions()}
 			engineVersions[engine] = smkengine.DefaultVersion()
 			tags["snakemake_supported_versions"] = strings.Join(smkengine.SupportedVersions(), ",")
-		case "cromwell":
+		case "wdl":
 			workflowTypes["WDL"] = TypeVersions{WorkflowTypeVersion: wdlengine.SupportedWDLVersions()}
 			engineVersions[engine] = wdlengine.DefaultVersion()
-			tags["cromwell_supported_versions"] = strings.Join(wdlengine.SupportedVersions(), ",")
+			tags["wdl_supported_versions"] = strings.Join(wdlengine.SupportedVersions(), ",")
 		}
 	}
 

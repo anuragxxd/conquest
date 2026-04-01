@@ -16,14 +16,13 @@ func runRunnerWDL(log *slog.Logger) error {
 	fs := flag.NewFlagSet("runner wdl", flag.ExitOnError)
 
 	runID := fs.String("run-id", "", "WES run ID")
-	cromwellVersion := fs.String("cromwell-version", "", "Resolved Cromwell engine version")
 	repoURL := fs.String("repo-url", "", "GitHub HTTPS repository URL")
 	revision := fs.String("revision", "", "Git commit SHA")
 	mainWorkflowPath := fs.String("main-workflow-path", "", "Primary WDL path relative to the repository root")
 	outputDirPrefix := fs.String("output-dir-prefix", "", "S3 final outputs directory URI")
 	runLogKey := fs.String("run-log-key", "", "Object storage key for the uploaded run log")
 	workflowOutputsKey := fs.String("workflow-outputs-key", "", "Object storage key for the persisted workflow outputs JSON")
-	cromwellMetadataKey := fs.String("cromwell-metadata-key", "", "Object storage key for the persisted Cromwell metadata JSON")
+	engineMetadataKey := fs.String("engine-metadata-key", "", "Object storage key for the persisted engine metadata JSON")
 	internalTESBase := fs.String("internal-tes-base", "", "Internal TES base URL")
 	s3Endpoint := fs.String("s3-endpoint", "", "S3/MinIO endpoint URL")
 	s3Bucket := fs.String("s3-bucket", "", "S3 bucket name")
@@ -37,11 +36,8 @@ func runRunnerWDL(log *slog.Logger) error {
 	if *runID == "" || *repoURL == "" || *revision == "" || *mainWorkflowPath == "" {
 		return fmt.Errorf("--run-id, --repo-url, --revision, and --main-workflow-path are required")
 	}
-	if *cromwellVersion == "" {
-		return fmt.Errorf("--cromwell-version is required")
-	}
-	if *outputDirPrefix == "" || *runLogKey == "" || *workflowOutputsKey == "" || *cromwellMetadataKey == "" {
-		return fmt.Errorf("--output-dir-prefix, --run-log-key, --workflow-outputs-key, and --cromwell-metadata-key are required")
+	if *outputDirPrefix == "" || *runLogKey == "" || *workflowOutputsKey == "" || *engineMetadataKey == "" {
+		return fmt.Errorf("--output-dir-prefix, --run-log-key, --workflow-outputs-key, and --engine-metadata-key are required")
 	}
 	if *internalTESBase == "" {
 		return fmt.Errorf("--internal-tes-base is required")
@@ -52,14 +48,13 @@ func runRunnerWDL(log *slog.Logger) error {
 
 	cfg := runner.WDLConfig{
 		RunID:                *runID,
-		CromwellVersion:      *cromwellVersion,
 		RepoURL:              *repoURL,
 		Revision:             *revision,
 		MainWorkflowPath:     *mainWorkflowPath,
 		OutputDirPrefix:      *outputDirPrefix,
 		RunLogKey:            *runLogKey,
 		WorkflowOutputsKey:   *workflowOutputsKey,
-		CromwellMetadataKey:  *cromwellMetadataKey,
+		EngineMetadataKey:    *engineMetadataKey,
 		InternalTESBase:      *internalTESBase,
 		S3Endpoint:           *s3Endpoint,
 		S3Bucket:             *s3Bucket,

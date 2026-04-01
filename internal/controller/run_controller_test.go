@@ -113,8 +113,8 @@ func TestSubmitRun_CleansUpWhenPersistSubmittedRunFails(t *testing.T) {
 	}
 }
 
-func TestGetRun_LoadsWorkflowOutputsForCromwell(t *testing.T) {
-	runs := &runStoreStub{getRun: &domain.Run{RunID: "run-123", WorkflowEngine: "cromwell"}}
+func TestGetRun_LoadsWorkflowOutputsForWDL(t *testing.T) {
+	runs := &runStoreStub{getRun: &domain.Run{RunID: "run-123", WorkflowEngine: "wdl"}}
 	ctrl := NewRunController(
 		runs,
 		&taskStoreStub{},

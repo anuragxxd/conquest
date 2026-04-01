@@ -51,7 +51,7 @@ func TestStageInLocalizesSharedLocalInputsWithoutObjectStore(t *testing.T) {
 		Workdir: filepath.Join(root, "workspace"),
 		Inputs: []tes.Input{{
 			URL:  sourcePath,
-			Path: filepath.Join(root, "cromwell-executions", "wf", "call-task", "execution", "tasks.wdl"),
+			Path: filepath.Join(root, "miniwdl-runs", "wf", "call-task", "execution", "tasks.wdl"),
 		}},
 	}
 

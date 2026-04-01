@@ -241,7 +241,7 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 	}
 
 	var outputs json.RawMessage
-	if c.artifacts != nil && run.WorkflowEngine == "cromwell" {
+	if c.artifacts != nil && run.WorkflowEngine == "wdl" {
 		outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
 		if err != nil {
 			c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
