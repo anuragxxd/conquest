@@ -190,6 +190,18 @@ func TestOutputsDirURI(t *testing.T) {
 	}
 }
 
+func TestWorkflowOutputsURI(t *testing.T) {
+	l := testLayout()
+	got := l.WorkflowOutputsURI(testRunID)
+	assertSuffix(t, got, "metadata/workflow-outputs.json")
+}
+
+func TestEngineMetadataURI(t *testing.T) {
+	l := testLayout()
+	got := l.EngineMetadataURI(testRunID)
+	assertSuffix(t, got, "metadata/engine-metadata.json")
+}
+
 // ---------------------------------------------------------------------------
 // Metadata
 // ---------------------------------------------------------------------------

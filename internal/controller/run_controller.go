@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
 	"github.com/anuragxxd/conquest/internal/backend"
 	"github.com/anuragxxd/conquest/internal/domain"
+	"github.com/anuragxxd/conquest/internal/objstore"
 	"github.com/anuragxxd/conquest/internal/repository"
 	"github.com/anuragxxd/conquest/internal/storage"
 )
@@ -35,6 +37,7 @@ type RunRequest struct {
 type RunLog struct {
 	Run         *domain.Run
 	TaskLogsURL string
+	Outputs     json.RawMessage
 }
 
 // RunListResult holds a page of runs.
@@ -65,6 +68,7 @@ type RunController struct {
 	adapters    *adapter.Registry
 	runBackend  backend.RunBackend  // nil if no runner backend configured
 	taskBackend backend.TaskBackend // nil if no task backend configured
+	artifacts   objstore.Client
 	log         *slog.Logger
 }
 
@@ -95,6 +99,12 @@ func (c *RunController) SetRunBackend(be backend.RunBackend) {
 // SetTaskBackend configures the task-level execution backend.
 func (c *RunController) SetTaskBackend(be backend.TaskBackend) {
 	c.taskBackend = be
+}
+
+// SetArtifactStore configures the optional artifact store used to read
+// persisted run-level artifacts such as workflow outputs.
+func (c *RunController) SetArtifactStore(store objstore.Client) {
+	c.artifacts = store
 }
 
 // Layout returns the storage layout used by this controller.
@@ -229,9 +239,19 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 	if err != nil {
 		return nil, err
 	}
+
+	var outputs json.RawMessage
+	if c.artifacts != nil && run.WorkflowEngine == "wdl" {
+		outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
+		if err != nil {
+			c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
+		}
+	}
+
 	return &RunLog{
 		Run:         run,
 		TaskLogsURL: fmt.Sprintf("/ga4gh/wes/v1/runs/%s/tasks", run.RunID),
+		Outputs:     outputs,
 	}, nil
 }
 
@@ -361,4 +381,26 @@ func (c *RunController) persistSubmittedRun(ctx context.Context, run *domain.Run
 	run.BackendRef = backendRef
 	run.State = domain.StateInitializing
 	return nil
+}
+
+func (c *RunController) loadWorkflowOutputs(ctx context.Context, runID string) (json.RawMessage, error) {
+	reader, err := c.artifacts.Get(ctx, c.layout.Bucket, c.layout.WorkflowOutputs(runID))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read workflow outputs: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var payload json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("parse workflow outputs JSON: %w", err)
+	}
+	return payload, nil
 }

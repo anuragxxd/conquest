@@ -150,6 +150,8 @@ spec:
             # Used by the run backend for Nextflow runner Jobs.
             - name: CONQUEST_RUNNER_IMAGE
               value: "{{ .Values.conquest.runnerImage.repository }}:{{ .Values.conquest.runnerImage.tag }}"
+            - name: CONQUEST_WDL_RUNNER_IMAGE
+              value: "{{ .Values.conquest.wdlRunnerImage.repository }}:{{ .Values.conquest.wdlRunnerImage.tag }}"
             {{- if .Values.conquest.snakemakeRunnerImage.repository }}
             - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGE
               value: "{{ .Values.conquest.snakemakeRunnerImage.repository }}:{{ .Values.conquest.snakemakeRunnerImage.tag }}"
@@ -176,6 +178,10 @@ spec:
             - name: CONQUEST_NEXTFLOW_RUNNER_IMAGES
               value: {{ toJson .Values.conquest.nextflowRunnerImages | quote }}
             {{- end }}
+            {{- if .Values.conquest.wdlRunnerImages }}
+            - name: CONQUEST_WDL_RUNNER_IMAGES
+              value: {{ toJson .Values.conquest.wdlRunnerImages | quote }}
+            {{- end }}
             {{- if .Values.conquest.snakemakeRunnerImages }}
             - name: CONQUEST_SNAKEMAKE_RUNNER_IMAGES
               value: {{ toJson .Values.conquest.snakemakeRunnerImages | quote }}
@@ -184,6 +190,8 @@ spec:
             - name: CONQUEST_SNAKEMAKE_TASK_IMAGES
               value: {{ toJson .Values.conquest.snakemakeTaskImages | quote }}
             {{- end }}
+            - name: CONQUEST_WDL_ALLOW_EXTERNAL_IMPORTS
+              value: {{ .Values.conquest.wdlAllowExternalImports | quote }}
             - name: CONQUEST_WORKSPACE_MODE
               value: {{ .Values.conquest.workspace.mode | quote }}
             - name: CONQUEST_WORKSPACE_ACCESS_MODE

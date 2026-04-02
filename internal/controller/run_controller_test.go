@@ -1,16 +1,19 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"io/ioutil"
 	"log/slog"
 	"testing"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
 	"github.com/anuragxxd/conquest/internal/backend"
 	"github.com/anuragxxd/conquest/internal/domain"
+	"github.com/anuragxxd/conquest/internal/objstore"
 	"github.com/anuragxxd/conquest/internal/repository"
 	"github.com/anuragxxd/conquest/internal/storage"
 )
@@ -110,6 +113,29 @@ func TestSubmitRun_CleansUpWhenPersistSubmittedRunFails(t *testing.T) {
 	}
 }
 
+func TestGetRun_LoadsWorkflowOutputsForWDL(t *testing.T) {
+	runs := &runStoreStub{getRun: &domain.Run{RunID: "run-123", WorkflowEngine: "wdl"}}
+	ctrl := NewRunController(
+		runs,
+		&taskStoreStub{},
+		&eventStoreStub{},
+		storage.Layout{Bucket: "conquest", Version: "v1"},
+		adapter.NewRegistry(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	ctrl.SetArtifactStore(&artifactStoreStub{objects: map[string][]byte{
+		"conquest/v1/workflow-runs/run-123/metadata/workflow-outputs.json": []byte(`{"wf.out":"s3://conquest/v1/workflow-runs/run-123/outputs/files/out.txt"}`),
+	}})
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(result.Outputs) == "" {
+		t.Fatal("expected workflow outputs to be loaded")
+	}
+}
+
 type runAdapterStub struct {
 	prepared *adapter.PreparedRun
 	err      error
@@ -149,6 +175,7 @@ type runStateUpdate struct {
 
 type runStoreStub struct {
 	createRun        *domain.Run
+	getRun           *domain.Run
 	backendRef       string
 	errorSummary     string
 	stateUpdates     []runStateUpdate
@@ -160,7 +187,12 @@ func (s *runStoreStub) Create(_ context.Context, run *domain.Run) error {
 	return nil
 }
 
-func (s *runStoreStub) Get(context.Context, string) (*domain.Run, error) { return nil, nil }
+func (s *runStoreStub) Get(context.Context, string) (*domain.Run, error) {
+	if s.getRun != nil {
+		return s.getRun, nil
+	}
+	return nil, nil
+}
 
 func (s *runStoreStub) GetStatus(context.Context, string) (domain.State, error) {
 	return domain.StateQueued, nil
@@ -220,5 +252,26 @@ type eventStoreStub struct{}
 
 func (s *eventStoreStub) Append(context.Context, *domain.Event) error { return nil }
 func (s *eventStoreStub) ListByRunID(context.Context, string) ([]*domain.Event, error) {
+	return nil, nil
+}
+
+type artifactStoreStub struct {
+	objects map[string][]byte
+}
+
+var _ objstore.Client = (*artifactStoreStub)(nil)
+
+func (s *artifactStoreStub) Get(_ context.Context, bucket, key string) (io.ReadCloser, error) {
+	data, ok := s.objects[bucket+"/"+key]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return ioutil.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (s *artifactStoreStub) Put(context.Context, string, string, io.Reader, int64) error { return nil }
+func (s *artifactStoreStub) Delete(context.Context, string, string) error                { return nil }
+func (s *artifactStoreStub) Exists(context.Context, string, string) (bool, error)        { return false, nil }
+func (s *artifactStoreStub) ListPrefix(context.Context, string, string) ([]string, error) {
 	return nil, nil
 }

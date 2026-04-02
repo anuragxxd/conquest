@@ -40,6 +40,19 @@ func StageOut(ctx context.Context, client objstore.Client, manifest StageManifes
 			log.Warn("output has no url or path, skipping", "index", i)
 			continue
 		}
+		if hasSharedLocalURL(output.URL) {
+			staged, err := stageSharedLocalOutput(output, manifest)
+			if err != nil {
+				return outputLogs, fmt.Errorf("output[%d] local shared stage-out %s: %w", i, output.URL, err)
+			}
+			outputLogs = append(outputLogs, *staged)
+			uploadedPaths[staged.Path] = struct{}{}
+			log.Info("materialized shared output", "url", staged.URL, "path", staged.Path)
+			continue
+		}
+		if client == nil {
+			return outputLogs, fmt.Errorf("output[%d] requires object storage staging but no object store client is configured", i)
+		}
 
 		localPath := output.Path
 		if !filepath.IsAbs(localPath) {

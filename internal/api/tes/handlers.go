@@ -14,18 +14,23 @@ import (
 
 	"github.com/anuragxxd/conquest/internal/backend"
 	"github.com/anuragxxd/conquest/internal/domain"
+	wdlengine "github.com/anuragxxd/conquest/internal/engine/wdl"
 	"github.com/anuragxxd/conquest/internal/repository"
 	"github.com/anuragxxd/conquest/internal/repository/pg"
 	"github.com/anuragxxd/conquest/internal/taskpolicy"
 )
+
+type taskValidationOptions struct {
+	AllowSharedLocalPaths bool
+}
 
 // Handler holds the TES HTTP handlers.
 type Handler struct {
 	runs    repository.RunStore
 	tasks   repository.TaskStore
 	events  repository.EventStore
-	backend backend.TaskBackend      // nil if no backend configured (persistence-only mode)
-	policy  *taskpolicy.Policy       // task normalization/validation policy
+	backend backend.TaskBackend // nil if no backend configured (persistence-only mode)
+	policy  *taskpolicy.Policy  // task normalization/validation policy
 }
 
 // NewHandler creates TES handlers.
@@ -98,7 +103,7 @@ func (h *Handler) CreateTaskForRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.createTaskWithRunID(w, r, runID, run.Workspace)
+	h.createTaskWithRun(w, r, run)
 }
 
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
@@ -151,19 +156,20 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 
 // createTaskWithRunID is the shared implementation for both public and
 // internal task creation. The runID is already validated.
-func (h *Handler) createTaskWithRunID(w http.ResponseWriter, r *http.Request, runID string, workspace *domain.WorkspaceBinding) {
+func (h *Handler) createTaskWithRun(w http.ResponseWriter, r *http.Request, run *domain.Run) {
 	var req Task
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
 
-	if errMsg := validateTESTask(&req); errMsg != "" {
+	ensureInternalRunTaskDefaults(&req, run)
+	if errMsg := validateTESTaskWithOptions(&req, validationOptionsForRun(run)); errMsg != "" {
 		writeError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
-	h.createAndSubmitTask(w, r, &req, runID, workspace)
+	h.createAndSubmitTask(w, r, &req, run.RunID, run.Workspace)
 }
 
 // createAndSubmitTask persists and submits a TES task.
@@ -231,6 +237,10 @@ func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, re
 
 // validateTESTask performs v1 scope validation on a TES task request.
 func validateTESTask(req *Task) string {
+	return validateTESTaskWithOptions(req, taskValidationOptions{})
+}
+
+func validateTESTaskWithOptions(req *Task, options taskValidationOptions) string {
 	if len(req.Executors) == 0 {
 		return "at least one executor is required"
 	}
@@ -254,7 +264,10 @@ func validateTESTask(req *Task) string {
 		if input.URL == "" {
 			return fmt.Sprintf("input[%d] must have url or content", i)
 		}
-		if !strings.HasPrefix(input.URL, "s3://") && !strings.HasPrefix(input.URL, "http://") && !strings.HasPrefix(input.URL, "https://") {
+		if !isSupportedTaskInputURL(input.URL, options) {
+			if options.AllowSharedLocalPaths {
+				return fmt.Sprintf("input[%d] url must be s3://, http://, https://, or a trusted shared local path (got %q)", i, input.URL)
+			}
 			return fmt.Sprintf("input[%d] url must be s3://, http://, or https:// (got %q)", i, input.URL)
 		}
 	}
@@ -267,6 +280,33 @@ func validateTESTask(req *Task) string {
 		}
 	}
 	return ""
+}
+
+func isSupportedTaskInputURL(raw string, options taskValidationOptions) bool {
+	if strings.HasPrefix(raw, "s3://") || strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return true
+	}
+	if options.AllowSharedLocalPaths {
+		_, ok := wdlengine.SharedLocalPathFromURL(raw)
+		return ok
+	}
+	return false
+}
+
+func validationOptionsForRun(run *domain.Run) taskValidationOptions {
+	return taskValidationOptions{AllowSharedLocalPaths: run != nil && run.Workspace.IsPVC()}
+}
+
+func ensureInternalRunTaskDefaults(req *Task, run *domain.Run) {
+	if run == nil || !run.Workspace.IsPVC() {
+		return
+	}
+	if req.Tags == nil {
+		req.Tags = make(map[string]string, 1)
+	}
+	if strings.TrimSpace(req.Tags["conquest_workspace_scope"]) == "" {
+		req.Tags["conquest_workspace_scope"] = "shared"
+	}
 }
 
 func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {

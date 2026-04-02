@@ -124,6 +124,13 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 	// /<bucket> if inputs reference paths under /<bucket>).
 	sharedBucketMount := "/" + strings.Trim(cfg.S3Bucket, "/")
 	workdirMounts := []corev1.VolumeMount{workdirMount}
+	if scope == "shared" && workspaceMount != workdirMount.MountPath && !sharedWorkspaceCoversPath(workdirMount.MountPath, workspaceMount) {
+		workdirMounts = append(workdirMounts, corev1.VolumeMount{
+			Name:      workdirMount.Name,
+			MountPath: workspaceMount,
+			SubPath:   workdirMount.SubPath,
+		})
+	}
 	if sharedBucketMount != "/" && sharedBucketMount != workspaceMount {
 		workdirMounts = append(workdirMounts, corev1.VolumeMount{Name: "workdir", MountPath: sharedBucketMount})
 	}
@@ -353,4 +360,13 @@ func splitPath(raw string) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
+}
+
+func sharedWorkspaceCoversPath(root, candidate string) bool {
+	root = path.Clean(root)
+	candidate = path.Clean(candidate)
+	if root == candidate {
+		return true
+	}
+	return strings.HasPrefix(candidate, root+"/")
 }

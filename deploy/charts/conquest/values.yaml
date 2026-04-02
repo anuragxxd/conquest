@@ -10,6 +10,10 @@ conquest:
     repository: harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner
     tag: latest
 
+  wdlRunnerImage:
+    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-wdl-runner
+    tag: latest
+
   snakemakeRunnerImage:
     repository: harbor.pacificanalytics.com/pacificanalytics/conquest-smk-9.17.3-runner
     tag: latest
@@ -34,6 +38,14 @@ conquest:
   # Optional per-version runner image overrides keyed by resolved Nextflow
   # version, e.g. {"25.04.3": "harbor.../conquest-nf-25.04.3-runner:release-20260329"}.
   nextflowRunnerImages: {}
+
+  # Optional per-version WDL runner image overrides keyed by resolved
+  # miniwdl version, e.g. {"1.12.1": "harbor.../conquest-wdl-runner:release-20260329"}.
+  wdlRunnerImages: {}
+
+  # External WDL imports are disabled in v1 by default. Set to true only if
+  # the deployment is prepared to rely on network-resolved imports.
+  wdlAllowExternalImports: false
 
   # Optional per-version Snakemake runner/task image overrides keyed by resolved
   # Snakemake version, e.g. {"7.32.4": "harbor.../conquest-smk-7.32.4-runner:release-20260329"}.
@@ -91,6 +103,7 @@ conquest:
     # CONQUEST_RUNNER_IMAGE is set automatically in the template.
     # Optional version-specific Nextflow runner image overrides are injected via
     # CONQUEST_NEXTFLOW_RUNNER_IMAGES when conquest.nextflowRunnerImages is non-empty.
+    # CONQUEST_WDL_RUNNER_IMAGE is set automatically in the template.
     # CONQUEST_SNAKEMAKE_RUNNER_IMAGE and CONQUEST_SNAKEMAKE_TASK_IMAGE are set
     # automatically in the template when configured.
 

@@ -60,31 +60,35 @@ func ExecAndStageOut(ctx context.Context, manifestJSON string, command []string,
 	}
 
 	// Build S3 client.
-	endpoint := os.Getenv("CONQUEST_S3_ENDPOINT")
-	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
-	secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
-	region := os.Getenv("CONQUEST_S3_REGION")
+	var client objstore.Client
+	if manifestNeedsObjectStoreForStageOut(manifest) {
+		endpoint := os.Getenv("CONQUEST_S3_ENDPOINT")
+		accessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+		secretKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+		region := os.Getenv("CONQUEST_S3_REGION")
 
-	if endpoint == "" || accessKey == "" || secretKey == "" {
-		log.Error("S3 config incomplete for stage-out")
-		writeTerminationMessage(exitCode, "s3_config_error", "missing S3 env vars")
-		return exitCode
-	}
+		if endpoint == "" || accessKey == "" || secretKey == "" {
+			log.Error("S3 config incomplete for stage-out")
+			writeTerminationMessage(exitCode, "s3_config_error", "missing S3 env vars")
+			return exitCode
+		}
 
-	useSSL := strings.HasPrefix(endpoint, "https://")
-	cleanEndpoint := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
+		useSSL := strings.HasPrefix(endpoint, "https://")
+		cleanEndpoint := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
 
-	client, err := objstore.NewS3Client(objstore.S3Config{
-		Endpoint:  cleanEndpoint,
-		AccessKey: accessKey,
-		SecretKey: secretKey,
-		Region:    region,
-		UseSSL:    useSSL,
-	})
-	if err != nil {
-		log.Error("failed to create S3 client for stage-out", "err", err)
-		writeTerminationMessage(exitCode, "s3_client_error", err.Error())
-		return exitCode
+		var err error
+		client, err = objstore.NewS3Client(objstore.S3Config{
+			Endpoint:  cleanEndpoint,
+			AccessKey: accessKey,
+			SecretKey: secretKey,
+			Region:    region,
+			UseSSL:    useSSL,
+		})
+		if err != nil {
+			log.Error("failed to create S3 client for stage-out", "err", err)
+			writeTerminationMessage(exitCode, "s3_client_error", err.Error())
+			return exitCode
+		}
 	}
 
 	// Run stage-out.

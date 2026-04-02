@@ -41,6 +41,11 @@ type SnakemakeEngineParams struct {
 	Jobs      int      `json:"jobs,omitempty"`
 }
 
+type WDLEngineParams struct {
+	Revision         string `json:"revision"`
+	MainWorkflowPath string `json:"main_workflow_path"`
+}
+
 // hexSHA40 matches a 40-char lowercase hex string (full git commit SHA).
 var hexSHA40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
