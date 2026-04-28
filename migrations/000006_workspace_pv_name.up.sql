@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS workspace_pv_name TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_pv_name TEXT;
+
+COMMIT;

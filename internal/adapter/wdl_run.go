@@ -39,8 +39,8 @@ func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout s
 	if err := wdlengine.ValidateWorkflowVersion(req.WorkflowTypeVersion); err != nil {
 		return nil, &ValidationError{Field: "workflow_type_version", Msg: err.Error()}
 	}
-	if a.cfg.WorkspaceMode != "pvc" {
-		return nil, &ValidationError{Field: "workflow_type", Msg: "WDL requires shared PVC workspace mode (CONQUEST_WORKSPACE_MODE=pvc)"}
+	if a.cfg.WorkspaceMode != "pvc" && a.cfg.WorkspaceMode != "objectfs" {
+		return nil, &ValidationError{Field: "workflow_type", Msg: "WDL requires shared workspace mode (CONQUEST_WORKSPACE_MODE=pvc or objectfs)"}
 	}
 
 	var wdlParams source.WDLEngineParams

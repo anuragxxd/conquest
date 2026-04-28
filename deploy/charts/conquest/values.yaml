@@ -28,12 +28,13 @@ conquest:
   runnerEphemeralStorageLimit: 40Gi
 
   # Workspace configuration — controls how runner and task pods share a
-  # filesystem. Set mode to "pvc" to create per-run PVCs for shared workspace.
+  # filesystem. Set mode to "pvc" for per-run PVCs, or "objectfs" for
+  # S3-mounted per-run volumes via the Yandex S3 CSI driver + GeeseFS.
   workspace:
-    mode: "emptydir"      # "emptydir" or "pvc"
+    mode: "emptydir"      # "emptydir", "pvc", or "objectfs"
     accessMode: "RWX"     # "RWX" or "RWO" (only used when mode is "pvc")
-    storageClass: ""      # optional; empty uses cluster default
-    size: "10Gi"          # PVC size (only used when mode is "pvc")
+    storageClass: ""      # optional; empty uses cluster default (pvc only)
+    size: "10Gi"          # volume size (used for pvc and objectfs)
 
   # Optional per-version runner image overrides keyed by resolved Nextflow
   # version, e.g. {"25.04.3": "harbor.../conquest-nf-25.04.3-runner:release-20260329"}.
@@ -128,6 +129,24 @@ secrets:
     name: conquest-db-secret
   storage:
     name: storage-secrets
+
+# ObjectFS workspace — S3-mounted volumes via Yandex S3 CSI driver + GeeseFS.
+# When enabled, installs the CSI driver components and grants Conquest
+# cluster-scoped permissions for static PV management.
+objectfs:
+  enabled: false
+  # Install CSI driver components (namespace, DaemonSet, provisioner).
+  # Set to false if the CSI driver is already installed externally.
+  installCSI: true
+  namespace: conquest-objectfs
+  # CSI driver images.
+  csiS3Image: cr.yandex/crp9ftr22d26age3hulg/csi-s3:0.43.6
+  csiProvisionerImage: cr.yandex/crp9ftr22d26age3hulg/yandex-cloud/csi-s3/csi-provisioner:v6.2.0
+  csiRegistrarImage: cr.yandex/crp9ftr22d26age3hulg/yandex-cloud/csi-s3/csi-node-driver-registrar:v2.16.0
+  # GeeseFS mount options (Talos-safe defaults).
+  geesefs:
+    memoryLimitMb: 1000
+    options: "--no-systemd --dir-mode 0777 --file-mode 0666"
 
 global:
   imagePullSecrets:

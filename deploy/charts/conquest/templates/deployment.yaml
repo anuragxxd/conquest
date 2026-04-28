@@ -202,3 +202,9 @@ spec:
             {{- end }}
             - name: CONQUEST_WORKSPACE_SIZE
               value: {{ .Values.conquest.workspace.size | quote }}
+            {{- if .Values.objectfs.enabled }}
+            - name: CONQUEST_OBJECTFS_CSI_SECRET_NAME
+              value: "csi-s3-secret"
+            - name: CONQUEST_OBJECTFS_CSI_SECRET_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- end }}
