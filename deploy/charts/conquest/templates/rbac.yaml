@@ -37,3 +37,32 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "conquest.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
+{{- if .Values.objectfs.enabled }}
+---
+# ObjectFS requires cluster-scoped PV management for static provisioning.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "conquest.fullname" . }}-objectfs
+  labels:
+    {{- include "conquest.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "conquest.fullname" . }}-objectfs
+  labels:
+    {{- include "conquest.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "conquest.fullname" . }}-objectfs
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "conquest.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

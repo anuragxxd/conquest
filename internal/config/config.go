@@ -54,11 +54,18 @@ type Config struct {
 
 	// Workspace configuration — controls how runner and task pods share a
 	// filesystem. Default is "emptydir" (current behavior). Set to "pvc" to
-	// create a per-run PersistentVolumeClaim for shared workspace.
-	WorkspaceMode         string // "emptydir" or "pvc"
+	// create a per-run PersistentVolumeClaim for shared workspace. Set to
+	// "objectfs" to mount an S3-backed filesystem via the Yandex S3 CSI driver.
+	WorkspaceMode         string // "emptydir", "pvc", or "objectfs"
 	WorkspaceAccessMode   string // "RWX" or "RWO" (only used when mode is "pvc")
 	WorkspaceStorageClass string // optional; empty uses cluster default
-	WorkspaceSize         string // e.g. "10Gi" (only used when mode is "pvc")
+	WorkspaceSize         string // e.g. "10Gi" (used when mode is "pvc" or "objectfs")
+
+	// ObjectFS CSI secret — the Yandex S3 CSI driver expects keys
+	// accessKeyID, secretAccessKey, endpoint. This secret is referenced
+	// by the static PVs that Conquest creates per run.
+	ObjectFSCSISecretName      string // default: "csi-s3-secret"
+	ObjectFSCSISecretNamespace string // default: same as K8sNamespace
 }
 
 func Load() (*Config, error) {
@@ -133,6 +140,14 @@ func Load() (*Config, error) {
 		WorkspaceAccessMode:   envOr("CONQUEST_WORKSPACE_ACCESS_MODE", "RWX"),
 		WorkspaceStorageClass: strings.TrimSpace(os.Getenv("CONQUEST_WORKSPACE_STORAGE_CLASS")),
 		WorkspaceSize:         envOr("CONQUEST_WORKSPACE_SIZE", "10Gi"),
+
+		ObjectFSCSISecretName:      envOr("CONQUEST_OBJECTFS_CSI_SECRET_NAME", "csi-s3-secret"),
+		ObjectFSCSISecretNamespace: strings.TrimSpace(os.Getenv("CONQUEST_OBJECTFS_CSI_SECRET_NAMESPACE")), // defaults to K8sNamespace below
+	}
+
+	// Default CSI secret namespace to the K8s namespace if not explicitly set.
+	if c.ObjectFSCSISecretNamespace == "" {
+		c.ObjectFSCSISecretNamespace = c.K8sNamespace
 	}
 
 	if c.PostgresDSN == "" {
@@ -165,10 +180,10 @@ func Load() (*Config, error) {
 
 	// Workspace validation.
 	switch c.WorkspaceMode {
-	case "emptydir", "pvc":
+	case "emptydir", "pvc", "objectfs":
 		// valid
 	default:
-		return nil, fmt.Errorf("CONQUEST_WORKSPACE_MODE must be 'emptydir' or 'pvc', got %q", c.WorkspaceMode)
+		return nil, fmt.Errorf("CONQUEST_WORKSPACE_MODE must be 'emptydir', 'pvc', or 'objectfs', got %q", c.WorkspaceMode)
 	}
 	if c.WorkspaceMode == "pvc" {
 		switch c.WorkspaceAccessMode {
@@ -179,6 +194,17 @@ func Load() (*Config, error) {
 		}
 		if c.WorkspaceSize == "" {
 			return nil, fmt.Errorf("CONQUEST_WORKSPACE_SIZE is required when workspace mode is 'pvc'")
+		}
+	}
+	if c.WorkspaceMode == "objectfs" {
+		if c.S3Bucket == "" {
+			return nil, fmt.Errorf("CONQUEST_S3_BUCKET is required when workspace mode is 'objectfs'")
+		}
+		if c.WorkspaceSize == "" {
+			return nil, fmt.Errorf("CONQUEST_WORKSPACE_SIZE is required when workspace mode is 'objectfs'")
+		}
+		if c.StorageSecretName == "" {
+			return nil, fmt.Errorf("CONQUEST_STORAGE_SECRET_NAME is required when workspace mode is 'objectfs'")
 		}
 	}
 

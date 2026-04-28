@@ -180,27 +180,31 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 	}
 }
 
-// cleanupWorkspace deletes the per-run workspace PVC if one was provisioned.
-// Failures are logged but do not block the terminal state transition.
-// Kubernetes PVC protection ensures the PVC deletion is deferred until all
-// pods have unmounted.
+// cleanupWorkspace deletes per-run workspace resources (PVC and optionally PV)
+// when a run reaches a terminal state. Failures are logged but do not block
+// the terminal state transition. Kubernetes PVC protection ensures the PVC
+// deletion is deferred until all pods have unmounted.
 func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
 	if r.workspace == nil {
 		return
 	}
-	if run.Workspace == nil || !run.Workspace.IsPVC() {
+	if run.Workspace == nil || !run.Workspace.RequiresCleanup() {
 		return
 	}
 
-	r.log.Info("cleaning up workspace PVC",
+	r.log.Info("cleaning up workspace",
 		"run_id", run.RunID,
+		"kind", run.Workspace.Kind,
 		"claim_name", run.Workspace.ClaimName,
+		"pv_name", run.Workspace.PVName,
 	)
 
 	if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
-		r.log.Error("failed to cleanup workspace PVC",
+		r.log.Error("failed to cleanup workspace",
 			"run_id", run.RunID,
+			"kind", run.Workspace.Kind,
 			"claim_name", run.Workspace.ClaimName,
+			"pv_name", run.Workspace.PVName,
 			"err", err,
 		)
 	}

@@ -162,10 +162,16 @@ func run(log *slog.Logger) error {
 
 	// Workspace config is shared between task and run backends.
 	wsCfg := k8sbackend.WorkspaceConfig{
-		Mode:         cfg.WorkspaceMode,
-		AccessMode:   cfg.WorkspaceAccessMode,
-		StorageClass: cfg.WorkspaceStorageClass,
-		Size:         cfg.WorkspaceSize,
+		Mode:                       cfg.WorkspaceMode,
+		AccessMode:                 cfg.WorkspaceAccessMode,
+		StorageClass:               cfg.WorkspaceStorageClass,
+		Size:                       cfg.WorkspaceSize,
+		S3Bucket:                   cfg.S3Bucket,
+		S3Endpoint:                 cfg.S3Endpoint,
+		LayoutVersion:              cfg.LayoutVersion,
+		StorageSecretName:          cfg.StorageSecretName,
+		ObjectFSCSISecretName:      cfg.ObjectFSCSISecretName,
+		ObjectFSCSISecretNamespace: cfg.ObjectFSCSISecretNamespace,
 	}
 
 	// Try to create K8s backend (only works inside a K8s cluster).

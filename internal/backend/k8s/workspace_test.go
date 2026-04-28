@@ -311,3 +311,188 @@ func TestPVCAccessMode_RWO(t *testing.T) {
 		t.Fatal("should be ReadWriteOnce")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ObjectFS workspace tests
+// ---------------------------------------------------------------------------
+
+func TestNewWorkspaceStrategy_ObjectFS(t *testing.T) {
+	ws := NewWorkspaceStrategy(nil, WorkspaceConfig{
+		Mode:              "objectfs",
+		Size:              "10Gi",
+		S3Bucket:          "conquest",
+		LayoutVersion:     "v1",
+		StorageSecretName: "storage-secrets",
+	}, "services", nil)
+	if _, ok := ws.(*objectFSWorkspace); !ok {
+		t.Fatal("expected objectFSWorkspace")
+	}
+}
+
+func TestObjectFSWorkspace_PVName(t *testing.T) {
+	name := pvName("abc-123")
+	if name != "conquest-objectfs-abc-123" {
+		t.Fatalf("pvName = %q", name)
+	}
+}
+
+func TestObjectFSWorkspace_PVNameTruncated(t *testing.T) {
+	longID := "abcdefghij-1234567890-abcdefghij-1234567890-abcdefghij"
+	name := pvName(longID)
+	if len(name) > 63 {
+		t.Fatalf("pvName len = %d, want <= 63", len(name))
+	}
+}
+
+func TestObjectFSWorkspace_ClaimNameMatchesPVName(t *testing.T) {
+	pv := pvName("run-xyz")
+	claim := objectFSClaimName("run-xyz")
+	if pv != claim {
+		t.Fatalf("PV name %q != claim name %q", pv, claim)
+	}
+}
+
+func TestObjectFSWorkspace_VolumeHandle(t *testing.T) {
+	ws := &objectFSWorkspace{
+		s3Bucket:      "conquest",
+		layoutVersion: "v1",
+	}
+	handle := ws.volumeHandle("run-abc")
+	expected := "conquest/v1/workflow-runs/run-abc/workspace"
+	if handle != expected {
+		t.Fatalf("volumeHandle = %q, want %q", handle, expected)
+	}
+}
+
+func TestObjectFSWorkspace_RunnerVolumes_NoSubPath(t *testing.T) {
+	ws := &objectFSWorkspace{}
+	binding := &domain.WorkspaceBinding{
+		Kind:      domain.WorkspaceKindObjectFS,
+		ClaimName: "conquest-objectfs-run-1",
+		PVName:    "conquest-objectfs-run-1",
+	}
+
+	vol, mount := ws.RunnerVolumes(binding)
+
+	if vol.PersistentVolumeClaim == nil {
+		t.Fatal("expected PVC volume source")
+	}
+	if vol.PersistentVolumeClaim.ClaimName != "conquest-objectfs-run-1" {
+		t.Fatalf("claim name = %q", vol.PersistentVolumeClaim.ClaimName)
+	}
+	if mount.MountPath != "/workspace" {
+		t.Fatalf("mount path = %q, want /workspace", mount.MountPath)
+	}
+	if mount.SubPath != "" {
+		t.Fatalf("objectfs runner should have no subPath, got %q", mount.SubPath)
+	}
+}
+
+func TestObjectFSWorkspace_TaskVolumes_Shared(t *testing.T) {
+	ws := &objectFSWorkspace{}
+	binding := &domain.WorkspaceBinding{
+		Kind:      domain.WorkspaceKindObjectFS,
+		ClaimName: "conquest-objectfs-run-1",
+	}
+
+	_, mount := ws.TaskVolumes(binding, "task-abc", "/workspace/workflow", "shared")
+
+	if mount.MountPath != "/workspace" {
+		t.Fatalf("shared mountPath = %q, want /workspace", mount.MountPath)
+	}
+	if mount.SubPath != "" {
+		t.Fatalf("shared subPath = %q, want empty", mount.SubPath)
+	}
+}
+
+func TestObjectFSWorkspace_TaskVolumes_Isolated(t *testing.T) {
+	ws := &objectFSWorkspace{}
+	binding := &domain.WorkspaceBinding{
+		Kind:      domain.WorkspaceKindObjectFS,
+		ClaimName: "conquest-objectfs-run-1",
+	}
+
+	_, mount := ws.TaskVolumes(binding, "task-abc", "/work", "isolated")
+
+	if mount.MountPath != "/work" {
+		t.Fatalf("isolated mountPath = %q, want /work", mount.MountPath)
+	}
+	if mount.SubPath != "tasks/task-abc" {
+		t.Fatalf("isolated subPath = %q, want tasks/task-abc", mount.SubPath)
+	}
+}
+
+func TestObjectFSWorkspace_NoAffinity(t *testing.T) {
+	ws := &objectFSWorkspace{}
+	if ws.TaskAffinity(nil, "run-1") != nil {
+		t.Fatal("objectfs should return nil affinity (RWX)")
+	}
+}
+
+func TestObjectFSWorkspace_RunnerEnv(t *testing.T) {
+	ws := &objectFSWorkspace{}
+	envs := ws.RunnerEnv()
+	found := false
+	for _, e := range envs {
+		if e.Name == "CONQUEST_SHARED_WORKSPACE" && e.Value == "true" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("objectfs should inject CONQUEST_SHARED_WORKSPACE=true")
+	}
+}
+
+func TestWorkspaceBinding_ObjectFS(t *testing.T) {
+	b := &domain.WorkspaceBinding{
+		Kind:      domain.WorkspaceKindObjectFS,
+		ClaimName: "test",
+		PVName:    "test-pv",
+	}
+	if !b.IsObjectFS() {
+		t.Fatal("objectfs binding should be ObjectFS")
+	}
+	if b.IsPVC() {
+		t.Fatal("objectfs binding should not be PVC")
+	}
+	if !b.RequiresCleanup() {
+		t.Fatal("objectfs binding should require cleanup")
+	}
+	if !b.IsShared() {
+		t.Fatal("objectfs binding should be shared")
+	}
+}
+
+func TestWorkspaceBinding_RequiresCleanup(t *testing.T) {
+	var nilBinding *domain.WorkspaceBinding
+	if nilBinding.RequiresCleanup() {
+		t.Fatal("nil binding should not require cleanup")
+	}
+
+	none := &domain.WorkspaceBinding{Kind: domain.WorkspaceKindNone}
+	if none.RequiresCleanup() {
+		t.Fatal("none binding should not require cleanup")
+	}
+
+	pvc := &domain.WorkspaceBinding{Kind: domain.WorkspaceKindPVC}
+	if !pvc.RequiresCleanup() {
+		t.Fatal("pvc binding should require cleanup")
+	}
+
+	objectfs := &domain.WorkspaceBinding{Kind: domain.WorkspaceKindObjectFS}
+	if !objectfs.RequiresCleanup() {
+		t.Fatal("objectfs binding should require cleanup")
+	}
+}
+
+func TestWorkspaceConfig_IsShared(t *testing.T) {
+	if (WorkspaceConfig{Mode: "emptydir"}).IsShared() {
+		t.Fatal("emptydir should not be shared")
+	}
+	if !(WorkspaceConfig{Mode: "pvc"}).IsShared() {
+		t.Fatal("pvc should be shared")
+	}
+	if !(WorkspaceConfig{Mode: "objectfs"}).IsShared() {
+		t.Fatal("objectfs should be shared")
+	}
+}

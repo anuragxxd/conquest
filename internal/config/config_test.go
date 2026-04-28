@@ -93,3 +93,52 @@ func TestLoad_RejectsInvalidSnakemakeDefaultDisk(t *testing.T) {
 		t.Fatal("expected snakemake disk validation error")
 	}
 }
+
+func TestLoad_AcceptsObjectFSWorkspaceMode(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_WORKSPACE_MODE", "objectfs")
+	t.Setenv("CONQUEST_WORKSPACE_SIZE", "20Gi")
+	t.Setenv("CONQUEST_STORAGE_SECRET_NAME", "storage-secrets")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WorkspaceMode != "objectfs" {
+		t.Fatalf("workspace mode = %q", cfg.WorkspaceMode)
+	}
+}
+
+func TestLoad_ObjectFSUsesExistingS3Config(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "my-bucket")
+	t.Setenv("CONQUEST_WORKSPACE_MODE", "objectfs")
+	t.Setenv("CONQUEST_WORKSPACE_SIZE", "50Gi")
+	t.Setenv("CONQUEST_STORAGE_SECRET_NAME", "my-secrets")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// ObjectFS reuses the existing S3 config.
+	if cfg.S3Bucket != "my-bucket" {
+		t.Fatalf("S3Bucket = %q", cfg.S3Bucket)
+	}
+	if cfg.WorkspaceSize != "50Gi" {
+		t.Fatalf("WorkspaceSize = %q", cfg.WorkspaceSize)
+	}
+	if cfg.StorageSecretName != "my-secrets" {
+		t.Fatalf("StorageSecretName = %q", cfg.StorageSecretName)
+	}
+}
+
+func TestLoad_RejectsInvalidWorkspaceMode(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_WORKSPACE_MODE", "invalid")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid workspace mode error")
+	}
+}

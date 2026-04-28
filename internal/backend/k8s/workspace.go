@@ -20,15 +20,35 @@ import (
 // WorkspaceConfig holds operator-supplied workspace settings, loaded from
 // config.Config at startup and threaded into both RunBackend and Backend.
 type WorkspaceConfig struct {
-	Mode         string // "emptydir" or "pvc"
-	AccessMode   string // "RWX" or "RWO"
-	StorageClass string // optional; empty = cluster default
+	Mode         string // "emptydir", "pvc", or "objectfs"
+	AccessMode   string // "RWX" or "RWO" (pvc only)
+	StorageClass string // optional; empty = cluster default (pvc only)
 	Size         string // e.g. "10Gi"
+
+	// ObjectFS-specific fields (reused from platform config).
+	S3Bucket          string // e.g. "conquest"
+	S3Endpoint        string // e.g. "http://minio.platform.svc.cluster.local:9000"
+	LayoutVersion     string // e.g. "v1"
+	StorageSecretName string // e.g. "storage-secrets"
+
+	// ObjectFS CSI secret — the Yandex S3 CSI driver expects specific keys.
+	ObjectFSCSISecretName      string // e.g. "csi-s3-secret"
+	ObjectFSCSISecretNamespace string // e.g. "services"
 }
 
 // IsPVC returns true when the operator opted into shared PVC workspace.
 func (wc WorkspaceConfig) IsPVC() bool {
 	return wc.Mode == "pvc"
+}
+
+// IsObjectFS returns true when the operator opted into S3-mounted workspace.
+func (wc WorkspaceConfig) IsObjectFS() bool {
+	return wc.Mode == "objectfs"
+}
+
+// IsShared returns true for any shared-filesystem workspace mode.
+func (wc WorkspaceConfig) IsShared() bool {
+	return wc.IsPVC() || wc.IsObjectFS()
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +89,22 @@ type WorkspaceStrategy interface {
 
 // NewWorkspaceStrategy builds the correct strategy from operator config.
 func NewWorkspaceStrategy(client kubernetes.Interface, cfg WorkspaceConfig, namespace string, log *slog.Logger) WorkspaceStrategy {
+	if cfg.IsObjectFS() {
+		csiSecretNS := cfg.ObjectFSCSISecretNamespace
+		if csiSecretNS == "" {
+			csiSecretNS = namespace
+		}
+		return &objectFSWorkspace{
+			client:              client,
+			namespace:           namespace,
+			size:                cfg.Size,
+			s3Bucket:            cfg.S3Bucket,
+			layoutVersion:       cfg.LayoutVersion,
+			csiSecretName:       cfg.ObjectFSCSISecretName,
+			csiSecretNamespace:  csiSecretNS,
+			log:                 log,
+		}
+	}
 	if !cfg.IsPVC() {
 		return &emptyDirWorkspace{}
 	}
@@ -356,4 +392,237 @@ func (p *pvcWorkspaceRWO) Cleanup(ctx context.Context, binding *domain.Workspace
 		return nil
 	}
 	return p.deletePVC(ctx, binding.ClaimName)
+}
+
+// ---------------------------------------------------------------------------
+// ObjectFS strategy — S3-backed workspace via Yandex S3 CSI + GeeseFS
+// ---------------------------------------------------------------------------
+
+const (
+	// objectFSCSIDriver is the registered CSI driver name.
+	objectFSCSIDriver = "ru.yandex.s3.csi"
+
+	// objectFSMounter selects GeeseFS inside the CSI driver.
+	objectFSMounter = "geesefs"
+
+	// objectFSMountOptions are hardcoded for Talos (no systemd) with
+	// relaxed permissions for non-root task containers.
+	objectFSMountOptions = "--no-systemd --memory-limit 1000 --dir-mode 0777 --file-mode 0666"
+)
+
+type objectFSWorkspace struct {
+	client             kubernetes.Interface
+	namespace          string
+	size               string // e.g. "10Gi"
+	s3Bucket           string // e.g. "conquest"
+	layoutVersion      string // e.g. "v1"
+	csiSecretName      string // e.g. "csi-s3-secret"
+	csiSecretNamespace string // e.g. "services"
+	log                *slog.Logger
+}
+
+// pvName produces a deterministic, DNS-safe PV name for a run.
+func pvName(runID string) string {
+	name := sanitizeK8sName("conquest-objectfs-" + runID)
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	return name
+}
+
+// objectFSClaimName produces a deterministic PVC name for objectfs.
+func objectFSClaimName(runID string) string {
+	return pvName(runID) // PV and PVC share the same name for clarity.
+}
+
+// volumeHandle builds the S3 prefix that becomes the mount root.
+// Layout: <bucket>/<version>/workflow-runs/<runID>/workspace
+func (o *objectFSWorkspace) volumeHandle(runID string) string {
+	return o.s3Bucket + "/" + o.layoutVersion + "/workflow-runs/" + runID + "/workspace"
+}
+
+func (o *objectFSWorkspace) Provision(ctx context.Context, runID string) (*domain.WorkspaceBinding, error) {
+	pv := pvName(runID)
+	claim := objectFSClaimName(runID)
+	qty, err := resource.ParseQuantity(o.size)
+	if err != nil {
+		return nil, fmt.Errorf("parse objectfs workspace size %q: %w", o.size, err)
+	}
+
+	// 1. Create static PV.
+	emptyStorageClass := ""
+	pvObj := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: pv,
+			Labels: map[string]string{
+				LabelRunID:   runID,
+				LabelManaged: "conquest",
+				"conquest.io/workspace-mode": "objectfs",
+			},
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			StorageClassName: emptyStorageClass,
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: qty,
+			},
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
+			ClaimRef: &corev1.ObjectReference{
+				Namespace: o.namespace,
+				Name:      claim,
+			},
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				CSI: &corev1.CSIPersistentVolumeSource{
+					Driver:       objectFSCSIDriver,
+					VolumeHandle: o.volumeHandle(runID),
+					VolumeAttributes: map[string]string{
+						"capacity": fmt.Sprintf("%d", qty.Value()),
+						"mounter":  objectFSMounter,
+						"options":  objectFSMountOptions,
+					},
+					ControllerPublishSecretRef: &corev1.SecretReference{
+						Name:      o.csiSecretName,
+						Namespace: o.csiSecretNamespace,
+					},
+					NodePublishSecretRef: &corev1.SecretReference{
+						Name:      o.csiSecretName,
+						Namespace: o.csiSecretNamespace,
+					},
+					NodeStageSecretRef: &corev1.SecretReference{
+						Name:      o.csiSecretName,
+						Namespace: o.csiSecretNamespace,
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := o.client.CoreV1().PersistentVolumes().Create(ctx, pvObj, metav1.CreateOptions{}); err != nil {
+		return nil, fmt.Errorf("create objectfs PV %s: %w", pv, err)
+	}
+
+	// 2. Create PVC bound to the static PV.
+	pvcObj := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      claim,
+			Namespace: o.namespace,
+			Labels: map[string]string{
+				LabelRunID:   runID,
+				LabelManaged: "conquest",
+				"conquest.io/workspace-mode": "objectfs",
+			},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			StorageClassName: &emptyStorageClass,
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: qty,
+				},
+			},
+			VolumeName: pv,
+		},
+	}
+
+	if _, err := o.client.CoreV1().PersistentVolumeClaims(o.namespace).Create(ctx, pvcObj, metav1.CreateOptions{}); err != nil {
+		// Best-effort cleanup of the PV we just created.
+		_ = o.client.CoreV1().PersistentVolumes().Delete(ctx, pv, metav1.DeleteOptions{})
+		return nil, fmt.Errorf("create objectfs PVC %s: %w", claim, err)
+	}
+
+	o.log.Info("created objectfs workspace",
+		"pv_name", pv,
+		"pvc_name", claim,
+		"run_id", runID,
+		"volume_handle", o.volumeHandle(runID),
+		"size", o.size,
+	)
+
+	return &domain.WorkspaceBinding{
+		Kind:       domain.WorkspaceKindObjectFS,
+		PVName:     pv,
+		ClaimName:  claim,
+		AccessMode: domain.WorkspaceAccessModeRWX,
+	}, nil
+}
+
+func (o *objectFSWorkspace) RunnerVolumes(binding *domain.WorkspaceBinding) (corev1.Volume, corev1.VolumeMount) {
+	// ObjectFS mounts at /workspace with no subPath — the S3 prefix IS the
+	// run-scoped root, so /workspace/foo maps to s3://.../workspace/foo.
+	return corev1.Volume{
+			Name: "workspace",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: binding.ClaimName,
+				},
+			},
+		}, corev1.VolumeMount{
+			Name:      "workspace",
+			MountPath: "/workspace",
+		}
+}
+
+func (o *objectFSWorkspace) TaskVolumes(binding *domain.WorkspaceBinding, taskID, mountPath, scope string) (corev1.Volume, corev1.VolumeMount) {
+	effectiveMountPath := mountPath
+	subPath := "tasks/" + taskID
+	if scope == "shared" {
+		subPath = ""
+		effectiveMountPath = "/workspace"
+	}
+
+	vm := corev1.VolumeMount{
+		Name:      "workdir",
+		MountPath: effectiveMountPath,
+	}
+	if subPath != "" {
+		vm.SubPath = subPath
+	}
+
+	return corev1.Volume{
+		Name: "workdir",
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: binding.ClaimName,
+			},
+		},
+	}, vm
+}
+
+func (o *objectFSWorkspace) TaskAffinity(_ *domain.WorkspaceBinding, _ string) *corev1.Affinity {
+	return nil // ObjectFS is RWX — no scheduling constraints needed.
+}
+
+func (o *objectFSWorkspace) RunnerEnv() []corev1.EnvVar {
+	return sharedRunnerEnv()
+}
+
+// Cleanup deletes the PVC and PV for an objectfs workspace.
+// S3 objects are intentionally preserved — data lifecycle is separate.
+func (o *objectFSWorkspace) Cleanup(ctx context.Context, binding *domain.WorkspaceBinding) error {
+	if binding == nil {
+		return nil
+	}
+
+	// Delete PVC first (K8s PVC protection defers actual deletion until
+	// pods have unmounted).
+	if binding.ClaimName != "" {
+		err := o.client.CoreV1().PersistentVolumeClaims(o.namespace).Delete(ctx, binding.ClaimName, metav1.DeleteOptions{})
+		if err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("delete objectfs PVC %s: %w", binding.ClaimName, err)
+		}
+	}
+
+	// Delete PV.
+	if binding.PVName != "" {
+		err := o.client.CoreV1().PersistentVolumes().Delete(ctx, binding.PVName, metav1.DeleteOptions{})
+		if err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("delete objectfs PV %s: %w", binding.PVName, err)
+		}
+	}
+
+	o.log.Info("cleaned up objectfs workspace",
+		"pv_name", binding.PVName,
+		"pvc_name", binding.ClaimName,
+	)
+	return nil
 }
