@@ -406,8 +406,10 @@ const (
 	objectFSMounter = "geesefs"
 
 	// objectFSMountOptions are hardcoded for Talos (no systemd) with
-	// relaxed permissions for non-root task containers.
-	objectFSMountOptions = "--no-systemd --memory-limit 1000 --dir-mode 0777 --file-mode 0666"
+	// relaxed permissions for non-root task containers. --enable-perms
+	// and --enable-mtime are required so that git, miniwdl, and other
+	// tools can call chmod()/utime()/flock() without EPERM.
+	objectFSMountOptions = "--no-systemd --memory-limit 1000 --dir-mode 0777 --file-mode 0666 --enable-perms --enable-mtime"
 )
 
 type objectFSWorkspace struct {

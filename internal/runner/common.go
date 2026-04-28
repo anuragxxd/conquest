@@ -122,7 +122,18 @@ func prepareGitCheckout(ctx context.Context, repoURL, revision, dir string) erro
 		return fmt.Errorf("create workflow parent directory: %w", err)
 	}
 
-	clone := exec.CommandContext(ctx, "git", "clone", repoURL, dir)
+	// Clone to a temp directory first, then copy to the target. This is
+	// required for S3-backed FUSE mounts (objectfs/GeeseFS) where git's
+	// internal chmod()/utime() calls fail with EPERM.
+	tmpDir, err := os.MkdirTemp("", "conquest-git-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir for git clone: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cloneDir := filepath.Join(tmpDir, "repo")
+
+	clone := exec.CommandContext(ctx, "git", "clone", repoURL, cloneDir)
 	clone.Stdout = io.Discard
 	clone.Stderr = os.Stderr
 	if err := clone.Run(); err != nil {
@@ -130,7 +141,7 @@ func prepareGitCheckout(ctx context.Context, repoURL, revision, dir string) erro
 	}
 
 	checkout := exec.CommandContext(ctx, "git", "checkout", revision)
-	checkout.Dir = dir
+	checkout.Dir = cloneDir
 	checkout.Stdout = io.Discard
 	checkout.Stderr = os.Stderr
 	if err := checkout.Run(); err != nil {
@@ -138,22 +149,50 @@ func prepareGitCheckout(ctx context.Context, repoURL, revision, dir string) erro
 	}
 
 	submodules := exec.CommandContext(ctx, "git", "submodule", "update", "--init", "--recursive")
-	submodules.Dir = dir
+	submodules.Dir = cloneDir
 	submodules.Stdout = io.Discard
 	submodules.Stderr = os.Stderr
 	if err := submodules.Run(); err != nil {
 		return fmt.Errorf("git submodule update: %w", err)
 	}
 
+	// Capture git-tracked file list while .git is on a real filesystem.
+	// Write it as .conquest-git-ls-files so callers don't need a .git dir.
+	lsFiles := exec.CommandContext(ctx, "git", "ls-files", "--recurse-submodules")
+	lsFiles.Dir = cloneDir
+	lsOut, err := lsFiles.Output()
+	if err == nil && len(lsOut) > 0 {
+		_ = os.WriteFile(filepath.Join(cloneDir, ".conquest-git-ls-files"), lsOut, 0644)
+	}
+
+	// Remove .git before copying — saves significant S3 transfer for large
+	// repos and avoids git lock file issues on FUSE mounts.
+	_ = os.RemoveAll(filepath.Join(cloneDir, ".git"))
+
+	// Copy the working tree to the target directory.
+	cp := exec.CommandContext(ctx, "cp", "-r", cloneDir+"/.", dir)
+	cp.Stdout = io.Discard
+	cp.Stderr = os.Stderr
+	if err := cp.Run(); err != nil {
+		return fmt.Errorf("copy checkout to workspace: %w", err)
+	}
+
 	return nil
 }
 
 func trackedWorkflowFiles(ctx context.Context, dir string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-files", "--recurse-submodules")
-	cmd.Dir = dir
-	output, err := cmd.Output()
+	// Prefer pre-computed index (written by prepareGitCheckout for FUSE
+	// mounts where .git is not copied to the workspace).
+	cachedPath := filepath.Join(dir, ".conquest-git-ls-files")
+	output, err := os.ReadFile(cachedPath)
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files: %w", err)
+		// Fall back to live git ls-files when .git is available.
+		cmd := exec.CommandContext(ctx, "git", "ls-files", "--recurse-submodules")
+		cmd.Dir = dir
+		output, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("git ls-files: %w", err)
+		}
 	}
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	files := make([]string, 0, len(lines))
