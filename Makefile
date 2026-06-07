@@ -6,7 +6,7 @@
 
 GO := go
 MODULE := github.com/anuragxxd/conquest
-REGISTRY := harbor.pacificanalytics.com/pacificanalytics
+REGISTRY := registry.example.com/conquest
 TAG ?= latest
 
 NXF_VER ?= 24.10.4

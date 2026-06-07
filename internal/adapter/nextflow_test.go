@@ -17,7 +17,7 @@ func TestGenerateNextflowConfig(t *testing.T) {
 	cfg := NextflowRunConfig{
 		RunID:           "019d1234-abcd-7890-abcd-1234567890ab",
 		Runtime:         runtime,
-		RepoURL:         "https://github.com/PacificAnalytics/conquest-acceptance",
+		RepoURL:         "https://github.com/anuragxxd/conquest-acceptance",
 		Revision:        "a3f5c8e1b2d4f6a8c0e2d4f6a8b0c2d4e6f8a0b2",
 		WorkDirURI:      "s3://conquest/v1/workflow-runs/019d1234-abcd-7890-abcd-1234567890ab/work/nextflow/",
 		OutputDirURI:    "s3://conquest/v1/workflow-runs/019d1234-abcd-7890-abcd-1234567890ab/outputs/",

@@ -5,7 +5,7 @@
 # plugins for a supported Nextflow version.
 
 # ---- Build conquest binary ----
-ARG NXF_BASE_IMAGE=harbor.pacificanalytics.com/pacificanalytics/conquest-runner:cleanup-20260328011600-nf-24.10.4
+ARG NXF_BASE_IMAGE=registry.example.com/conquest/conquest-runner:cleanup-20260328011600-nf-24.10.4
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
 

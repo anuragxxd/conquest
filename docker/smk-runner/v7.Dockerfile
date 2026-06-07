@@ -7,7 +7,7 @@
 # Build:
 #   docker build -f docker/smk-runner/v7.Dockerfile \
 #     --platform linux/amd64 \
-#     -t harbor.pacificanalytics.com/pacificanalytics/conquest-smk-7.32.4-runner:release-20260329 .
+#     -t registry.example.com/conquest/conquest-smk-7.32.4-runner:release-20260329 .
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
 

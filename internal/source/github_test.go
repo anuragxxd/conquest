@@ -13,18 +13,18 @@ func TestValidateGitHubURL(t *testing.T) {
 	}{
 		{
 			name: "basic repo",
-			url:  "https://github.com/PacificAnalytics/conquest-acceptance",
-			want: "https://github.com/PacificAnalytics/conquest-acceptance",
+			url:  "https://github.com/anuragxxd/conquest-acceptance",
+			want: "https://github.com/anuragxxd/conquest-acceptance",
 		},
 		{
 			name: "with .git suffix",
-			url:  "https://github.com/PacificAnalytics/conquest-acceptance.git",
-			want: "https://github.com/PacificAnalytics/conquest-acceptance",
+			url:  "https://github.com/anuragxxd/conquest-acceptance.git",
+			want: "https://github.com/anuragxxd/conquest-acceptance",
 		},
 		{
 			name: "trailing slash",
-			url:  "https://github.com/PacificAnalytics/conquest-acceptance/",
-			want: "https://github.com/PacificAnalytics/conquest-acceptance",
+			url:  "https://github.com/anuragxxd/conquest-acceptance/",
+			want: "https://github.com/anuragxxd/conquest-acceptance",
 		},
 		{
 			name: "trailing slash with .git",
@@ -38,7 +38,7 @@ func TestValidateGitHubURL(t *testing.T) {
 		},
 		{
 			name:    "ssh git url",
-			url:     "git@github.com:PacificAnalytics/infra.git",
+			url:     "git@github.com:anuragxxd/infra.git",
 			wantErr: true,
 		},
 		{
@@ -73,7 +73,7 @@ func TestValidateGitHubURL(t *testing.T) {
 		},
 		{
 			name:    "only org, no repo",
-			url:     "https://github.com/PacificAnalytics",
+			url:     "https://github.com/anuragxxd",
 			wantErr: true,
 		},
 		{
@@ -231,20 +231,20 @@ func TestResolve(t *testing.T) {
 			Entry:    "myWorkflow",
 			Profiles: []string{"docker", "test"},
 		}
-		src, err := Resolve("https://github.com/PacificAnalytics/conquest-acceptance.git", params)
+		src, err := Resolve("https://github.com/anuragxxd/conquest-acceptance.git", params)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if src.Type != TypeGitHubHTTPS {
 			t.Errorf("Type = %q, want %q", src.Type, TypeGitHubHTTPS)
 		}
-		if src.RepoURL != "https://github.com/PacificAnalytics/conquest-acceptance" {
+		if src.RepoURL != "https://github.com/anuragxxd/conquest-acceptance" {
 			t.Errorf("RepoURL = %q", src.RepoURL)
 		}
 		if src.Revision != params.Revision {
 			t.Errorf("Revision = %q", src.Revision)
 		}
-		wantRef := "https://github.com/PacificAnalytics/conquest-acceptance@a3f5c8e1b2d4f6a8c0e2d4f6a8b0c2d4e6f8a0b2"
+		wantRef := "https://github.com/anuragxxd/conquest-acceptance@a3f5c8e1b2d4f6a8c0e2d4f6a8b0c2d4e6f8a0b2"
 		if src.Ref != wantRef {
 			t.Errorf("Ref = %q, want %q", src.Ref, wantRef)
 		}

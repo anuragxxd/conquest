@@ -307,7 +307,7 @@ or parameter schemas.
 
 **What we gave up:**
 - No `s3://`, SSH Git (`git@github.com:...`), private Git, TRS, DOS/DRS,
-  ARES, or WES attachment support in Batch D.
+  or WES attachment support in Batch D.
 - Workflow source handling and workflow parameter normalization are partially
   hardcoded instead of hidden behind a reusable adapter interface.
 - Only full 40-char commit SHAs are accepted as revisions; tags and branches
@@ -315,14 +315,14 @@ or parameter schemas.
 
 **Risk if never addressed:**
 - Source handling will become scattered and engine-specific.
-- Future support for Git variants, object storage, ARES, DOS/DRS, and other
+- Future support for Git variants, object storage, DOS/DRS, and other
   engines will be harder to add cleanly.
 - WES request compatibility will drift as more source-specific exceptions
   are added.
 
 **When to address:**
 - Before adding non-public Git sources (SSH, private repos).
-- Before adding S3/TRS/ARES/DOS/DRS workflow sources.
+- Before adding S3/TRS/DOS/DRS workflow sources.
 - Before Snakemake support.
 - When introducing a broader workflow-source adapter/plugin system.
 

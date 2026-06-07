@@ -2,24 +2,24 @@ conquest:
   appname: conquest
 
   image:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest
+    repository: registry.example.com/conquest/conquest
     tag: latest
     pullPolicy: Always
 
   runnerImage:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-nf-24.10.4-runner
+    repository: registry.example.com/conquest/conquest-nf-24.10.4-runner
     tag: latest
 
   wdlRunnerImage:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-wdl-runner
+    repository: registry.example.com/conquest/conquest-wdl-runner
     tag: latest
 
   snakemakeRunnerImage:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-smk-9.17.3-runner
+    repository: registry.example.com/conquest/conquest-smk-9.17.3-runner
     tag: latest
 
   snakemakeTaskImage:
-    repository: harbor.pacificanalytics.com/pacificanalytics/conquest-smk-9.17.3-runner
+    repository: registry.example.com/conquest/conquest-smk-9.17.3-runner
     tag: latest
 
   snakemakeDefaultJobs: 32
