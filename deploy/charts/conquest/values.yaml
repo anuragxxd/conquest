@@ -3,24 +3,24 @@ conquest:
 
   image:
     repository: docker.io/anurag1201/conquest
-    tag: objectfs-v8
+    tag: objectfs-v9
     pullPolicy: Always
 
   runnerImage:
     repository: docker.io/anurag1201/conquest-nf-24.10.4-runner
-    tag: objectfs-v8
+    tag: objectfs-v9
 
   wdlRunnerImage:
     repository: docker.io/anurag1201/conquest-wdl-runner
-    tag: objectfs-v8
+    tag: objectfs-v9
 
   snakemakeRunnerImage:
     repository: docker.io/anurag1201/conquest-smk-9.17.3-runner
-    tag: objectfs-v8
+    tag: objectfs-v9
 
   snakemakeTaskImage:
     repository: docker.io/anurag1201/conquest-smk-9.17.3-runner
-    tag: objectfs-v8
+    tag: objectfs-v9
 
   snakemakeDefaultJobs: 32
   snakemakeDefaultDiskMB: 8192
