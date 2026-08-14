@@ -116,15 +116,81 @@ Controls how the runner pod and task pods share (or don't share) a filesystem.
 
 | Mode          | Volume Type          | Shared Filesystem | Notes                                                                                                     |
 |---------------|----------------------|-------------------|-----------------------------------------------------------------------------------------------------------|
-| `pvc` + `RWX` | PVC (ReadWriteMany)  | Yes               | **Preferred.** Requires NFS or a similar StorageClass.                                                    |
+| `objectfs`    | S3 via FUSE          | Yes               | Run workspace is an S3 prefix mounted into every pod. No block storage needed. See below.                  |
+| `pvc` + `RWX` | PVC (ReadWriteMany)  | Yes               | Requires NFS or a similar StorageClass.                                                                   |
 | `pvc` + `RWO` | PVC (ReadWriteOnce)  | Yes               | Good fallback when NFS isn't available. Co-locates tasks on the same node as the runner via pod affinity. |
-| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Fully comapatible with Nextflow and simple Snakemake runs. Good fallback when the cluster has no persistent storage provisioner. |
+| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Fully compatible with Nextflow and simple Snakemake runs. Good fallback when the cluster has no persistent storage provisioner. |
 
 ```bash
-CONQUEST_WORKSPACE_MODE=pvc          # "emptydir" or "pvc"
-CONQUEST_WORKSPACE_ACCESS_MODE=RWX   # "RWX" or "RWO"
+CONQUEST_WORKSPACE_MODE=objectfs     # "emptydir", "pvc", or "objectfs"
+CONQUEST_WORKSPACE_ACCESS_MODE=RWX   # "RWX" or "RWO" (pvc only)
 CONQUEST_WORKSPACE_SIZE=10Gi
 ```
+
+### `objectfs` — S3 as the workspace filesystem
+
+`objectfs` gives the runner and every task pod one shared POSIX filesystem
+that *is* an S3 prefix. It needs no NFS, no RWX StorageClass and no block
+storage, which makes it the mode that works on clusters where the other
+shared options are unavailable.
+
+**How it is put together.** Conquest creates a static `PersistentVolume` per
+run whose `volumeHandle` is the run's own S3 prefix, plus a matching PVC:
+
+```
+/workspace/results/a.bam
+  -> s3://<bucket>/v1/workflow-runs/<runID>/workspace/results/a.bam
+```
+
+The mount is performed by [GeeseFS][geesefs] (Apache 2.0) through the
+[Yandex S3 CSI driver][csi-s3] (Apache 2.0). Both are implementation detail:
+the only user-facing surface is `CONQUEST_WORKSPACE_MODE=objectfs`.
+
+The layout is deliberately transparent — one object per file, human-readable
+keys, no chunking or opaque metadata store. Anything written through the
+mount can be read with `mc`, the AWS SDK or the MinIO console, and anything
+uploaded by other means appears in the mount. This is why JuiceFS and
+similar chunk-plus-metadata designs were rejected despite better POSIX
+fidelity.
+
+**Mount options and why each is required** (`internal/backend/k8s/workspace.go`):
+
+| Flag | Why |
+|---|---|
+| `--no-systemd` | Talos has no systemd; GeeseFS must not try to register a unit. |
+| `--dir-mode 0777` / `--file-mode 0666` | Fallback modes for objects with no stored mode. |
+| `--enable-perms` | Stores real modes as `x-amz-meta-mode`. Without it `chmod()` is silently discarded and executable bits on `bin/` scripts are lost. |
+| `--enable-mtime` | Preserves mtime. Without it miniwdl dies in `bump_atime` with `EPERM`, and Snakemake's mtime-driven DAG logic is unreliable. |
+| `--enable-specials` | Enables named pipes. GeeseFS only auto-enables this for endpoints containing `yandex`, so it must be explicit on MinIO. Without it STAR cannot create its FIFO and every `STAR_ALIGN` task fails. |
+
+The last three all carry the same upstream caveat — they need the S3 backend
+to return `UserMetadata` in listings. MinIO does; verified by round-tripping
+mode, mtime and file type across a remount, at no measurable listing cost.
+
+Conquest also clears the process `umask` in the runner and in every task
+executor when the workspace is shared (`internal/sharedfs`). The runner is
+typically root while task images often run as a non-root UID; with the
+default `umask 022` the runner's files land `0644`/`0755` and tasks get
+`EACCES`. See that package for the full reasoning.
+
+**Known limitations.** These are properties of S3-backed FUSE, not bugs:
+
+- No hard links (`ENOTSUP`). Harmless here — the WDL runner sets
+  `output_hardlinks = false`, so miniwdl uses symlinks, which do work.
+- No "invisible" deleted files: unlinking a file that is still open yields
+  `ESTALE`, so `tempfile.NamedTemporaryFile(delete=True)` patterns break.
+- Concurrent writes to the same object from multiple pods are unsafe.
+- Advisory locks (`flock`, `fcntl` `F_SETLK`) are handled locally by the
+  kernel per mount, so they serialise within a pod but not across pods.
+
+**Cleanup.** When a run reaches a terminal state Conquest deletes the run's
+Jobs, then the PVC and PV. **S3 objects are deliberately retained** — data
+lifecycle is separate from workspace lifecycle. The Job deletion has to come
+first: `pvc-protection` blocks PVC deletion while any Pod still *references*
+the claim, including Pods that have already completed.
+
+[geesefs]: https://github.com/yandex-cloud/geesefs
+[csi-s3]: https://github.com/yandex-cloud/k8s-csi-s3
 
 ## GA4GH APIs
 
@@ -220,9 +286,10 @@ No config files.
 | `CONQUEST_S3_BUCKET`                | `conquest-workflows` | Object storage bucket             |
 | `CONQUEST_S3_ENDPOINT`              | —                    | S3 / MinIO endpoint               |
 | `CONQUEST_K8S_NAMESPACE`            | `conquest`           | Kubernetes namespace for Jobs     |
-| `CONQUEST_WORKSPACE_MODE`           | `emptydir`           | `emptydir` or `pvc`              |
-| `CONQUEST_WORKSPACE_ACCESS_MODE`    | `RWX`                | `RWX` or `RWO` (when mode=pvc)   |
-| `CONQUEST_WORKSPACE_SIZE`           | `10Gi`               | PVC size                          |
+| `CONQUEST_WORKSPACE_MODE`           | `emptydir`           | `emptydir`, `pvc`, or `objectfs`  |
+| `CONQUEST_WORKSPACE_ACCESS_MODE`    | `RWX`                | `RWX` or `RWO` (when mode=pvc)     |
+| `CONQUEST_WORKSPACE_SIZE`           | `10Gi`               | PVC / objectfs volume size        |
+| `CONQUEST_OBJECTFS_CSI_SECRET_NAME` | `csi-s3-secret`      | S3 creds for the FUSE mount       |
 | `CONQUEST_RECONCILER_INTERVAL`      | `5s`                 | How often reconcilers poll K8s    |
 | `CONQUEST_RUNNER_IMAGE`             | —                    | Default Nextflow runner image     |
 | `CONQUEST_WDL_RUNNER_IMAGE`         | —                    | Default WDL runner image          |
@@ -264,6 +331,10 @@ migrations, health probes, and a non-root security context.
 - **UUIDv7** for all IDs — time-sortable, DNS-safe, works as Postgres PKs
   and K8s labels
 - Versioned storage layout (`v1/`) so the format can evolve without migration
+- **Transparent** object layout in every mode — one object per file, readable
+  keys, no chunking. Rules out JuiceFS-style chunk+metadata designs.
+- Permissively licensed dependencies only (Apache 2.0 / MIT / BSD) so the
+  stack can ship to institutional clients without copyleft review
 
 ## Tech Debt
 

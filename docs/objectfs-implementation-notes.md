@@ -1,4 +1,20 @@
-# ObjectFS Plan for Conquest
+# ObjectFS Implementation Notes
+
+> **Status: implemented and shipped.** This began as a proposal and is kept as
+> the design record. `CONQUEST_WORKSPACE_MODE=objectfs` is implemented in
+> `internal/backend/k8s/workspace.go` and validated on the preview cluster
+> across Nextflow, WDL and Snakemake.
+>
+> For operator-facing documentation see the **objectfs** section of the
+> [README](../README.md). For the accepted trade-offs and open risks see
+> [tech-debt.md](tech-debt.md) (TD-017 through TD-020).
+>
+> Resolved since this was written:
+> - the subPath spike (section 8) — subPath works with GeeseFS
+> - FUSE availability on Talos — `/dev/fuse` is present and usable
+> - the mount-option set — now also requires `--enable-specials`, without
+>   which STAR cannot create FIFOs
+> - cross-UID writes — needed a cleared `umask`, see `internal/sharedfs`
 
 ## Goal
 
