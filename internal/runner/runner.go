@@ -15,6 +15,8 @@ import (
 
 	"github.com/anuragxxd/conquest/internal/adapter"
 	nfengine "github.com/anuragxxd/conquest/internal/engine/nextflow"
+
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
 
 // Config holds the runner invocation parameters, parsed from CLI flags.
@@ -37,6 +39,11 @@ type Config struct {
 
 // Run executes the Nextflow runner workflow.
 func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
+	// Shared workspaces are written by both this runner and task pods that may
+	// run as a different UID. Clear the umask so everything we create stays
+	// group/other writable. No-op for emptydir runs.
+	sharedfs.ApplyUmask(log)
+
 	log.Info("starting nextflow runner",
 		"run_id", cfg.RunID,
 		"nextflow_version", cfg.NextflowVersion,

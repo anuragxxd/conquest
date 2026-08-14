@@ -23,6 +23,7 @@ import (
 
 	"github.com/anuragxxd/conquest/internal/api/tes"
 	"github.com/anuragxxd/conquest/internal/domain"
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 	"github.com/anuragxxd/conquest/internal/taskpolicy"
 )
 
@@ -111,6 +112,19 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 		envVars = append(envVars, corev1.EnvVar{Name: k, Value: v})
 	}
 
+	// Signal a shared workspace to the conquest wrappers running inside this
+	// pod so they clear their umask. Without it, files this task writes are
+	// created 0644/0755 and a subsequent task running under a different UID
+	// cannot modify them. See internal/sharedfs.ApplyUmask.
+	sharedWorkspaceEnv := []corev1.EnvVar{}
+	if task.Workspace.IsShared() {
+		sharedWorkspaceEnv = append(sharedWorkspaceEnv, corev1.EnvVar{
+			Name:  sharedfs.SharedWorkspaceEnv,
+			Value: "true",
+		})
+		envVars = append(envVars, sharedWorkspaceEnv...)
+	}
+
 	// Determine workspace scope from TES tags.
 	scope := taskWorkspaceScope(tesTask.Tags)
 
@@ -197,12 +211,12 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 								"/tools/conquest", "filer", "stage-in",
 								"--manifest", "/stage/manifest.json",
 							},
-							Env: append([]corev1.EnvVar{
+							Env: append(append([]corev1.EnvVar{
 								{Name: "CONQUEST_S3_ENDPOINT", Value: cfg.S3Endpoint},
 								{Name: "CONQUEST_S3_BUCKET", Value: cfg.S3Bucket},
 								{Name: "CONQUEST_S3_REGION", Value: cfg.S3Region},
 								{Name: "STAGE_MANIFEST", Value: string(manifestJSON)},
-							}, awsSecretEnvVars(cfg.StorageSecretName)...),
+							}, sharedWorkspaceEnv...), awsSecretEnvVars(cfg.StorageSecretName)...),
 							VolumeMounts: append(append([]corev1.VolumeMount{}, workdirMounts...),
 								corev1.VolumeMount{Name: "stage-manifest", MountPath: "/stage"},
 								corev1.VolumeMount{Name: "tools", MountPath: "/tools"},

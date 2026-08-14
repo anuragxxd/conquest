@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
 
 type SnakemakeConfig struct {
@@ -34,6 +36,11 @@ type SnakemakeConfig struct {
 }
 
 func RunSnakemake(ctx context.Context, cfg SnakemakeConfig, log *slog.Logger) error {
+	// Shared workspaces are written by both this runner and task pods that may
+	// run as a different UID. Clear the umask so everything we create stays
+	// group/other writable. No-op for emptydir runs.
+	sharedfs.ApplyUmask(log)
+
 	log.Info("starting snakemake runner",
 		"run_id", cfg.RunID,
 		"snakemake_version", cfg.SnakemakeVersion,
