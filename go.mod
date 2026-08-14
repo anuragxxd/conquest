@@ -3,7 +3,7 @@ module github.com/anuragxxd/conquest
 go 1.25.5
 
 require (
-	github.com/go-chi/chi/v5 v5.2.2
+	github.com/go-chi/chi/v5 v5.2.4
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/minio/minio-go/v7 v7.0.99
 	k8s.io/api v0.35.3
