@@ -43,7 +43,7 @@ func TestNormalizeImageRef_PlainRef(t *testing.T) {
 	tests := []string{
 		"ubuntu:24.04",
 		"ghcr.io/org/image:1.0",
-		"harbor.example.com/team/tool:sha-abc123",
+		"registry.example.com/team/tool:sha-abc123",
 		"python:3.12-slim",
 	}
 	for _, ref := range tests {

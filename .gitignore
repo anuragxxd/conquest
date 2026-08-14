@@ -1,0 +1,14 @@
+# Compiled binaries — built by `make build` or the CI image jobs, never committed.
+/conquest
+/conquest-*
+*.exe
+
+# Go
+*.test
+*.out
+coverage.*
+
+# Local env / editor
+.env
+.env.*
+.DS_Store

@@ -6,12 +6,12 @@
 
 GO := go
 MODULE := github.com/anuragxxd/conquest
-REGISTRY := registry.example.com/conquest
+REGISTRY := docker.io/anurag1201
 TAG ?= latest
 
 NXF_VER ?= 24.10.4
 NXF_VERSIONS := 24.10.4 25.04.3 25.10.2 25.10.4
-NXF_RUNTIME_TAG_PREFIX ?= cleanup-20260328011600
+NXF_RUNTIME_REPO ?= $(REGISTRY)/conquest-nf-runtime
 NXF_PLUGINS_ALLOWED ?= nf-ga4gh,nf-amazon,nf-schema,nf-core-utils,nf-fgbio,nf-prov
 
 SNAKEMAKE_VER ?= 9.17.3
@@ -54,7 +54,7 @@ docker-server:
 docker-nf-runner:
 	@if [ -z "$(NXF_VER)" ]; then echo "NXF_VER is required"; exit 1; fi
 	@case "$(NXF_VER)" in \
-		24.10.4|25.04.3|25.10.2|25.10.4) NXF_BASE_IMAGE='$(REGISTRY)/conquest-runner:$(NXF_RUNTIME_TAG_PREFIX)-nf-$(NXF_VER)' ;; \
+		24.10.4|25.04.3|25.10.2|25.10.4) NXF_BASE_IMAGE='$(NXF_RUNTIME_REPO):nf-$(NXF_VER)' ;; \
 		*) echo "unsupported NXF_VER: $(NXF_VER)"; exit 1 ;; \
 	esac; \
 	docker buildx build --platform linux/amd64 \

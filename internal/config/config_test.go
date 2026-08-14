@@ -9,7 +9,7 @@ func TestLoad_ParsesRunnerImageMapAndPullSecrets(t *testing.T) {
 	t.Setenv("CONQUEST_WDL_RUNNER_IMAGES", `{"1.12.1":"example.com/wdl-runner:1.12.1"}`)
 	t.Setenv("CONQUEST_WDL_ALLOW_EXTERNAL_IMPORTS", "true")
 	t.Setenv("CONQUEST_TASK_REJECT_ON_MAX_VIOLATION", "true")
-	t.Setenv("CONQUEST_IMAGE_PULL_SECRETS", "harbor, mirror ")
+	t.Setenv("CONQUEST_IMAGE_PULL_SECRETS", "primary, mirror ")
 	t.Setenv("CONQUEST_RECONCILER_INTERVAL", "11s")
 
 	cfg, err := Load()
