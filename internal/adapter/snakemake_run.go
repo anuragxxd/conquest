@@ -15,8 +15,8 @@ import (
 type SnakemakeRunAdapterConfig struct {
 	DefaultRunnerImage    string            // fallback runner image for the default SM version
 	DefaultTaskImage      string            // fallback task image for the default SM version
-	RunnerImagesByVersion map[string]string  // version -> runner image overrides
-	TaskImagesByVersion   map[string]string  // version -> task image overrides
+	RunnerImagesByVersion map[string]string // version -> runner image overrides
+	TaskImagesByVersion   map[string]string // version -> task image overrides
 	DefaultJobs           int
 	DefaultDiskMB         int
 	InternalBaseURL       string

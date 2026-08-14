@@ -15,24 +15,24 @@ import (
 //   - StartedAt:  set when the state first reaches INITIALIZING.
 //   - FinishedAt: set when the state reaches any terminal state.
 type Run struct {
-	RunID                 string          `json:"run_id"`
-	WorkflowType          string          `json:"workflow_type"`           // e.g. "NFL" (Nextflow), "SMK" (Snakemake)
-	WorkflowTypeVersion   string          `json:"workflow_type_version"`   // e.g. "DSL2"
-	WorkflowEngine        string          `json:"workflow_engine"`         // e.g. "nextflow"
-	WorkflowEngineVersion string          `json:"workflow_engine_version"` // e.g. "24.10.0"
-	State                 State           `json:"state"`
-	RequestPayload        json.RawMessage `json:"request_payload"`         // original WES RunRequest (verbatim JSON)
-	ResolvedWorkflowRef   string          `json:"resolved_workflow_ref"`   // e.g. "https://github.com/org/repo@<sha>"
-	OutputPrefix          string          `json:"output_prefix"`           // s3://bucket/v1/workflow-runs/<run-id>/outputs/
-	LayoutVersion         string          `json:"layout_version"`          // storage layout version, e.g. "v1"
-	RunRootURI            string          `json:"run_root_uri"`            // s3://bucket/v1/workflow-runs/<run-id>/
-	BackendRef            string          `json:"backend_ref,omitempty"`   // K8s runner Job name
-	BackendState          json.RawMessage `json:"backend_state,omitempty"` // Runner pod/job state blob
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
-	StartedAt             *time.Time      `json:"started_at,omitempty"`
-	FinishedAt            *time.Time      `json:"finished_at,omitempty"`
-	ErrorSummary          string          `json:"error_summary,omitempty"`
+	RunID                 string            `json:"run_id"`
+	WorkflowType          string            `json:"workflow_type"`           // e.g. "NFL" (Nextflow), "SMK" (Snakemake)
+	WorkflowTypeVersion   string            `json:"workflow_type_version"`   // e.g. "DSL2"
+	WorkflowEngine        string            `json:"workflow_engine"`         // e.g. "nextflow"
+	WorkflowEngineVersion string            `json:"workflow_engine_version"` // e.g. "24.10.0"
+	State                 State             `json:"state"`
+	RequestPayload        json.RawMessage   `json:"request_payload"`         // original WES RunRequest (verbatim JSON)
+	ResolvedWorkflowRef   string            `json:"resolved_workflow_ref"`   // e.g. "https://github.com/org/repo@<sha>"
+	OutputPrefix          string            `json:"output_prefix"`           // s3://bucket/v1/workflow-runs/<run-id>/outputs/
+	LayoutVersion         string            `json:"layout_version"`          // storage layout version, e.g. "v1"
+	RunRootURI            string            `json:"run_root_uri"`            // s3://bucket/v1/workflow-runs/<run-id>/
+	BackendRef            string            `json:"backend_ref,omitempty"`   // K8s runner Job name
+	BackendState          json.RawMessage   `json:"backend_state,omitempty"` // Runner pod/job state blob
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
+	StartedAt             *time.Time        `json:"started_at,omitempty"`
+	FinishedAt            *time.Time        `json:"finished_at,omitempty"`
+	ErrorSummary          string            `json:"error_summary,omitempty"`
 	Workspace             *WorkspaceBinding `json:"workspace,omitempty"`
 }
 

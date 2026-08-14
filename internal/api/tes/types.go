@@ -13,18 +13,18 @@ import (
 
 // Task is the top-level TES task object.
 type Task struct {
-	ID           string          `json:"id,omitempty"`
-	State        domain.State    `json:"state,omitempty"`
-	Name         string          `json:"name,omitempty"`
-	Description  string          `json:"description,omitempty"`
-	Executors    []Executor      `json:"executors,omitempty"`
-	Inputs       []Input         `json:"inputs,omitempty"`
-	Outputs      []Output        `json:"outputs,omitempty"`
-	Resources    *Resources      `json:"resources,omitempty"`
-	Volumes      []string        `json:"volumes,omitempty"`
+	ID           string            `json:"id,omitempty"`
+	State        domain.State      `json:"state,omitempty"`
+	Name         string            `json:"name,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Executors    []Executor        `json:"executors,omitempty"`
+	Inputs       []Input           `json:"inputs,omitempty"`
+	Outputs      []Output          `json:"outputs,omitempty"`
+	Resources    *Resources        `json:"resources,omitempty"`
+	Volumes      []string          `json:"volumes,omitempty"`
 	Tags         map[string]string `json:"tags,omitempty"`
-	Logs         []TaskLog       `json:"logs,omitempty"`
-	CreationTime string          `json:"creation_time,omitempty"`
+	Logs         []TaskLog         `json:"logs,omitempty"`
+	CreationTime string            `json:"creation_time,omitempty"`
 }
 
 // Executor describes a command to run inside a container.
@@ -62,13 +62,13 @@ type Output struct {
 
 // Resources describes compute resources for a task.
 type Resources struct {
-	CPUCores              *int32            `json:"cpu_cores,omitempty"`
-	RAMGb                 *float64          `json:"ram_gb,omitempty"`
-	DiskGb                *float64          `json:"disk_gb,omitempty"`
-	Preemptible           *bool             `json:"preemptible,omitempty"`
-	Zones                 []string          `json:"zones,omitempty"`
-	BackendParameters     map[string]string `json:"backend_parameters,omitempty"`
-	BackendParametersStrict *bool           `json:"backend_parameters_strict,omitempty"`
+	CPUCores                *int32            `json:"cpu_cores,omitempty"`
+	RAMGb                   *float64          `json:"ram_gb,omitempty"`
+	DiskGb                  *float64          `json:"disk_gb,omitempty"`
+	Preemptible             *bool             `json:"preemptible,omitempty"`
+	Zones                   []string          `json:"zones,omitempty"`
+	BackendParameters       map[string]string `json:"backend_parameters,omitempty"`
+	BackendParametersStrict *bool             `json:"backend_parameters_strict,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -108,12 +108,12 @@ type OutputFileLog struct {
 
 // ServiceInfo is the response for GET /service-info.
 type ServiceInfo struct {
-	Name             string          `json:"name,omitempty"`
-	Doc              string          `json:"doc,omitempty"`
-	Storage          []string        `json:"storage,omitempty"`
-	Type             *ServiceType    `json:"type,omitempty"`
-	Organization     json.RawMessage `json:"organization,omitempty"`
-	TESResourcesBackendParameters []string `json:"tes_resources_backend_parameters,omitempty"`
+	Name                          string          `json:"name,omitempty"`
+	Doc                           string          `json:"doc,omitempty"`
+	Storage                       []string        `json:"storage,omitempty"`
+	Type                          *ServiceType    `json:"type,omitempty"`
+	Organization                  json.RawMessage `json:"organization,omitempty"`
+	TESResourcesBackendParameters []string        `json:"tes_resources_backend_parameters,omitempty"`
 }
 
 // ServiceType identifies the service.

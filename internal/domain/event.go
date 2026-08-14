@@ -9,11 +9,11 @@ import (
 type EventType string
 
 const (
-	EventRunCreated       EventType = "run.created"
-	EventRunStateChanged  EventType = "run.state_changed"
+	EventRunCreated         EventType = "run.created"
+	EventRunStateChanged    EventType = "run.state_changed"
 	EventRunCancelRequested EventType = "run.cancel_requested"
-	EventRunFailed        EventType = "run.failed"
-	EventRunCompleted     EventType = "run.completed"
+	EventRunFailed          EventType = "run.failed"
+	EventRunCompleted       EventType = "run.completed"
 
 	EventTaskCreated      EventType = "task.created"
 	EventTaskStateChanged EventType = "task.state_changed"
