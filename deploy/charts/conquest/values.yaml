@@ -37,14 +37,14 @@ conquest:
     size: "10Gi"          # volume size (used for pvc and objectfs)
 
   # Optional per-version runner image overrides keyed by resolved Nextflow
-  # version, e.g. {"25.04.3": "harbor.../conquest-nf-25.04.3-runner:release-20260329"}.
+  # version, e.g. {"25.04.3": "docker.io/anurag1201/conquest-nf-25.04.3-runner:v1.0.0"}.
   nextflowRunnerImages:
     "25.04.3": docker.io/anurag1201/conquest-nf-25.04.3-runner:objectfs-v8
     "25.10.2": docker.io/anurag1201/conquest-nf-25.10.2-runner:objectfs-v8
     "25.10.4": docker.io/anurag1201/conquest-nf-25.10.4-runner:objectfs-v8
 
   # Optional per-version WDL runner image overrides keyed by resolved
-  # miniwdl version, e.g. {"1.12.1": "harbor.../conquest-wdl-runner:release-20260329"}.
+  # miniwdl version, e.g. {"1.12.1": "docker.io/anurag1201/conquest-wdl-runner:v1.0.0"}.
   wdlRunnerImages: {}
 
   # External WDL imports are disabled in v1 by default. Set to true only if
@@ -52,7 +52,7 @@ conquest:
   wdlAllowExternalImports: false
 
   # Optional per-version Snakemake runner/task image overrides keyed by resolved
-  # Snakemake version, e.g. {"7.32.4": "harbor.../conquest-smk-7.32.4-runner:release-20260329"}.
+  # Snakemake version, e.g. {"7.32.4": "docker.io/anurag1201/conquest-smk-7.32.4-runner:v1.0.0"}.
   # The default snakemakeRunnerImage/snakemakeTaskImage above is used for the
   # platform default version (9.17.3). Non-default versions must have an entry here.
   snakemakeRunnerImages:
@@ -154,5 +154,6 @@ objectfs:
     options: "--no-systemd --dir-mode 0777 --file-mode 0666"
 
 global:
-  imagePullSecrets:
-    - harbor
+  # All published images are public on Docker Hub, so no pull secret is needed.
+  # Add entries here only when mirroring into a private registry.
+  imagePullSecrets: []
