@@ -159,6 +159,8 @@ func (s *runBackendStub) SubmitRun(_ context.Context, _ *domain.Run, spec *backe
 	return s.submission, s.err
 }
 
+func (s *runBackendStub) DeleteRunJobs(context.Context, string) error { return nil }
+
 func (s *runBackendStub) CancelRun(context.Context, *domain.Run) error {
 	s.cancelCalled = true
 	return nil

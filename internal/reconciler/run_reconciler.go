@@ -180,10 +180,19 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 	}
 }
 
-// cleanupWorkspace deletes per-run workspace resources (PVC and optionally PV)
+// cleanupWorkspace releases per-run workspace resources (PVC and optionally PV)
 // when a run reaches a terminal state. Failures are logged but do not block
-// the terminal state transition. Kubernetes PVC protection ensures the PVC
-// deletion is deferred until all pods have unmounted.
+// the terminal state transition.
+//
+// Ordering matters. Kubernetes `pvc-protection` defers PVC deletion until every
+// Pod that *references* the claim is deleted — not merely until those Pods have
+// terminated or unmounted. Completed runner and task Pods therefore keep the
+// finalizer held. Deleting the Jobs first (Background propagation) lets the Pods
+// be garbage collected so the PVC and its static PV release in seconds instead
+// of lingering in Terminating for the full TTLSecondsAfterFinished window
+// (600s for task Jobs, 3600s for runner Jobs).
+//
+// S3 data is untouched — only Kubernetes objects are removed here.
 func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
 	if r.workspace == nil {
 		return
@@ -198,6 +207,16 @@ func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
 		"claim_name", run.Workspace.ClaimName,
 		"pv_name", run.Workspace.PVName,
 	)
+
+	// Release Pod references before touching the PVC/PV.
+	if err := r.backend.DeleteRunJobs(ctx, run.RunID); err != nil {
+		r.log.Error("failed to delete run jobs before workspace cleanup",
+			"run_id", run.RunID,
+			"err", err,
+		)
+		// Continue anyway — the PVC delete is still requested and will
+		// complete once the Jobs age out via TTL.
+	}
 
 	if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
 		r.log.Error("failed to cleanup workspace",
