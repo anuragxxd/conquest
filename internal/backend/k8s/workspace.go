@@ -406,10 +406,22 @@ const (
 	objectFSMounter = "geesefs"
 
 	// objectFSMountOptions are hardcoded for Talos (no systemd) with
-	// relaxed permissions for non-root task containers. --enable-perms
-	// and --enable-mtime are required so that git, miniwdl, and other
-	// tools can call chmod()/utime()/flock() without EPERM.
-	objectFSMountOptions = "--no-systemd --memory-limit 1000 --dir-mode 0777 --file-mode 0666 --enable-perms --enable-mtime"
+	// relaxed permissions for non-root task containers.
+	//
+	// --enable-perms and --enable-mtime are required so that git, miniwdl,
+	// and other tools can call chmod()/utime() without EPERM.
+	//
+	// --enable-specials is required for named pipes (FIFOs). GeeseFS only
+	// auto-enables specials when the S3 endpoint string contains "yandex"
+	// (core/cfg/flags.go:959), so against MinIO it must be passed explicitly
+	// or MkNode returns ENOTSUP (core/goofys_fuse.go:652). Without it,
+	// STAR fails with "could not create FIFO file ..._STARtmp/tmp.fifo.read1",
+	// which breaks nf-core/rnaseq and any aligner that pipes gzipped input.
+	//
+	// All three flags share the same requirement — that the S3 backend
+	// returns UserMetadata in listings. MinIO does; verified by round-tripping
+	// mode/mtime/file-type through x-amz-meta-mode across a remount.
+	objectFSMountOptions = "--no-systemd --memory-limit 1000 --dir-mode 0777 --file-mode 0666 --enable-perms --enable-mtime --enable-specials"
 )
 
 type objectFSWorkspace struct {
