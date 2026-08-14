@@ -392,3 +392,125 @@ workflow task images must include a working `bash` binary.
 - Before broadening support beyond controlled acceptance workflows.
 - When evaluating alternatives to nf-ga4gh or adding image/toolchain
   compatibility shims.
+
+---
+
+## TD-017: objectfs inherits S3-backed FUSE POSIX limitations
+
+**Decided:** 2026-08-12
+**Status:** Accepted — properties of the approach, not defects
+
+**What we chose:**
+`objectfs` mounts an S3 prefix per run via GeeseFS. The layout is transparent
+(one object per file, readable keys) which rules out chunk+metadata designs
+like JuiceFS that would give better POSIX fidelity.
+
+**What we gave up:**
+- No hard links (`ENOTSUP`). Currently harmless: `internal/runner/wdl.go`
+  sets `output_hardlinks = false`, so miniwdl uses symlinks.
+- No "invisible" deleted files — unlinking an open file yields `ESTALE`, so
+  `tempfile.NamedTemporaryFile(delete=True)` patterns fail.
+- Advisory locks are kernel-local per mount: they serialise within a pod but
+  not across pods.
+- Concurrent writes to one object from multiple pods are unsafe.
+
+**Validated working** (against MinIO, with `--enable-perms --enable-mtime
+--enable-specials`): rename incl. directories, truncate, partial/seek writes,
+tmp+fsync+rename, chmod, utime, symlinks, `flock`, `fcntl` `F_SETLK`, `lockf`,
+`mkfifo`, `mknod`, sqlite, in-place `git` operations. ~1100 file creates/s,
+131 MB/s write, 137 MB/s read, 2000-file cold walk in 0.29s.
+
+**When to address:**
+- If a workflow needs hard links or cross-pod advisory locking, use
+  `pvc` + `RWX` for that workload instead.
+
+---
+
+## TD-018: Conquest task pods can evict platform components
+
+**Decided:** 2026-08-12
+**Status:** Active — highest-severity open item
+
+**What happens:**
+Task pods take their ephemeral-storage request from the TES `disk_gb` field.
+A Snakemake run with `jobs: 8` and 9Gi per task reserves 72Gi on a 94Gi node.
+Platform components (`pgcluster`, `democratic-csi`, ClickHouse, Keycloak's
+Postgres) declare **no** ephemeral-storage request and **no** priorityClass,
+and the kubelet evicts pods exceeding their request first — so a request of
+zero makes them the *first* candidates.
+
+Observed on the preview cluster: a single `rna-seq-star-deseq2` run drove
+`DiskPressure` and evicted the Postgres primary, the ClickHouse instance, the
+ClickHouse operator, Keycloak's Postgres and — worst — the
+`democratic-csi-local-node` DaemonSet. With the CSI driver gone, *no* pod on
+the node could mount any PVC, so Postgres could not restart. Recovery needed
+a manual DaemonSet restart.
+
+**Risk if never addressed:**
+A workflow can take down the platform it runs on. On a single-node or small
+cluster this is a full outage, not degradation.
+
+**When to address:**
+Before any client-facing deployment. Candidate fixes:
+- `system-cluster-critical` priorityClass + non-zero ephemeral requests on
+  platform components (owned by the infra chart, not Conquest)
+- cap concurrent task pods per node
+- right-size `CONQUEST_RUNNER_EPHEMERAL_STORAGE_REQUEST` (currently 20Gi
+  per runner, which is large for a process whose work tree lives in S3)
+- back Snakemake conda environments with a volume instead of node ephemeral
+
+---
+
+## TD-019: conquest binary is compiled into all eight images
+
+**Decided:** 2026-08-12
+**Status:** Active
+
+**What we chose:**
+The server image and all seven runner images each build the `conquest` binary
+from source. Task executors get it from `CONQUEST_IMAGE`; runners get it from
+their own image.
+
+**Why it matters:**
+A change to shared code (`internal/filer`, `internal/runner`,
+`internal/sharedfs`) is only live where the image has been rebuilt, with no
+signal when they disagree. This bit during the umask fix: the server image
+carried it, the runner images still had a four-month-old binary, so the fix
+was silently half-applied and appeared not to work.
+
+**When to address:**
+Build the binary once per commit and `COPY --from` a single published
+artifact, so shared-code changes cannot ship inconsistently.
+
+---
+
+## TD-020: terminal-state Job deletion destroys pod logs
+
+**Decided:** 2026-08-12
+**Status:** Active — regression introduced by the PV/PVC leak fix
+
+**What we chose:**
+`cleanupWorkspace` deletes the run's Jobs before releasing the PVC, because
+`pvc-protection` otherwise pins the volume for the full Job TTL.
+
+**What we gave up:**
+Pod logs for the runner and tasks disappear the moment a run goes terminal.
+For a *failed* run that is exactly when they are needed. `logs/run.log` is
+uploaded to S3, but not when the runner crashes before the upload — leaving
+no log at all. Encountered twice while diagnosing Snakemake failures.
+
+**When to address:**
+Soon. Options: retain Jobs on non-success terminal states and accept the
+volume being pinned for the TTL; make the `run.log` upload crash-safe; or
+stream runner logs out continuously rather than at exit.
+
+---
+
+## TD-021: two tech-debt files
+
+**Status:** Active — housekeeping
+
+`TECHDEBT.md` (repo root) and `docs/tech-debt.md` have diverged. The root
+copy still claims S3 FUSE mounts were rejected for POSIX-compatibility
+reasons (TD-011), which `objectfs` has superseded. Pick one location and
+delete the other.
