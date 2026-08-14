@@ -111,6 +111,54 @@ func (b *RunBackend) CancelRun(ctx context.Context, run *domain.Run) error {
 	return nil
 }
 
+// DeleteRunJobs deletes the runner Job and every task Job belonging to a run,
+// selected by the conquest.io/run-id label that both jobspec builders apply.
+//
+// Implemented as List + per-item Delete rather than DeleteCollection on
+// purpose: DeleteCollection is a distinct RBAC verb, and requiring it would
+// mean asking every operator to widen the Role. List and Delete are already
+// granted for Job management, so this works under the existing chart RBAC and
+// under tighter policies in locked-down clusters.
+//
+// Deletion uses Background propagation so the Pods are garbage collected
+// asynchronously; the PVC finalizer clears once they are gone.
+func (b *RunBackend) DeleteRunJobs(ctx context.Context, runID string) error {
+	if runID == "" {
+		return nil
+	}
+
+	jobs, err := b.client.BatchV1().Jobs(b.cfg.Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: LabelRunID + "=" + runID,
+	})
+	if err != nil {
+		return fmt.Errorf("list k8s jobs for run %s: %w", runID, err)
+	}
+
+	propagation := metav1.DeletePropagationBackground
+	var firstErr error
+	deleted := 0
+	for i := range jobs.Items {
+		name := jobs.Items[i].Name
+		delErr := b.client.BatchV1().Jobs(b.cfg.Namespace).Delete(ctx, name, metav1.DeleteOptions{
+			PropagationPolicy: &propagation,
+		})
+		if delErr != nil && !k8serrors.IsNotFound(delErr) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("delete k8s job %s for run %s: %w", name, runID, delErr)
+			}
+			continue
+		}
+		deleted++
+	}
+
+	b.log.Info("deleted k8s jobs for run",
+		"run_id", runID,
+		"deleted", deleted,
+		"found", len(jobs.Items),
+	)
+	return firstErr
+}
+
 // RefreshRun queries K8s for the runner Job's current state.
 func (b *RunBackend) RefreshRun(ctx context.Context, run *domain.Run) (*backend.BackendStatus, error) {
 	if run.BackendRef == "" {

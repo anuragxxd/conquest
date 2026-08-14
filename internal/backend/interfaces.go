@@ -87,4 +87,17 @@ type RunBackend interface {
 	// RefreshRun queries the backend for the current state of a run's
 	// runner Job and returns a BackendStatus.
 	RefreshRun(ctx context.Context, run *domain.Run) (*BackendStatus, error)
+
+	// DeleteRunJobs removes every backend execution resource belonging to a
+	// run (runner Job and all task Jobs).
+	//
+	// This must be called before releasing a shared workspace. Kubernetes
+	// `pvc-protection` blocks PVC deletion while any Pod still *references*
+	// the claim — including Pods that have already terminated. Relying on
+	// TTLSecondsAfterFinished instead leaves the PVC and its statically
+	// provisioned PV stuck in Terminating for the whole TTL window
+	// (up to an hour for runner Jobs).
+	//
+	// Idempotent — must not error if the resources are already gone.
+	DeleteRunJobs(ctx context.Context, runID string) error
 }
