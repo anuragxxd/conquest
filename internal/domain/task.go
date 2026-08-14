@@ -14,24 +14,24 @@ import (
 // Timestamp semantics match Run: StartedAt on INITIALIZING, FinishedAt on
 // terminal.
 type Task struct {
-	TaskID              string          `json:"task_id"`
-	RunID               string          `json:"run_id"`
-	EngineTaskName      string          `json:"engine_task_name,omitempty"` // e.g. Nextflow process name
-	TESTaskID           string          `json:"tes_task_id,omitempty"`     // ID as known by the TES API
-	State               State           `json:"state"`
-	Resources           json.RawMessage `json:"resources,omitempty"`             // TES resources (cpu, ram, disk, etc.)
-	TaskRequestPayload  json.RawMessage `json:"task_request_payload,omitempty"`  // Full TES task body as submitted
-	BackendRef          string          `json:"backend_ref,omitempty"`           // K8s Job name or other backend ID
-	BackendState        json.RawMessage `json:"backend_state,omitempty"`         // Backend-specific state blob (K8s pod phase, etc.)
-	OutputLogs          json.RawMessage `json:"output_logs,omitempty"`           // TES OutputFileLog entries from stage-out
-	CreatedAt           time.Time       `json:"created_at"`
-	UpdatedAt           time.Time       `json:"updated_at"`
-	StartedAt           *time.Time      `json:"started_at,omitempty"`
-	FinishedAt          *time.Time      `json:"finished_at,omitempty"`
-	LogLocation         string          `json:"log_location,omitempty"` // S3 URI to task log
-	ExitCode            *int32          `json:"exit_code,omitempty"`    // from TES executor log, not .exitcode file
-	Attempt             int32           `json:"attempt"`                // 0-based retry counter
-	Workspace           *WorkspaceBinding `json:"workspace,omitempty"`
+	TaskID             string            `json:"task_id"`
+	RunID              string            `json:"run_id"`
+	EngineTaskName     string            `json:"engine_task_name,omitempty"` // e.g. Nextflow process name
+	TESTaskID          string            `json:"tes_task_id,omitempty"`      // ID as known by the TES API
+	State              State             `json:"state"`
+	Resources          json.RawMessage   `json:"resources,omitempty"`            // TES resources (cpu, ram, disk, etc.)
+	TaskRequestPayload json.RawMessage   `json:"task_request_payload,omitempty"` // Full TES task body as submitted
+	BackendRef         string            `json:"backend_ref,omitempty"`          // K8s Job name or other backend ID
+	BackendState       json.RawMessage   `json:"backend_state,omitempty"`        // Backend-specific state blob (K8s pod phase, etc.)
+	OutputLogs         json.RawMessage   `json:"output_logs,omitempty"`          // TES OutputFileLog entries from stage-out
+	CreatedAt          time.Time         `json:"created_at"`
+	UpdatedAt          time.Time         `json:"updated_at"`
+	StartedAt          *time.Time        `json:"started_at,omitempty"`
+	FinishedAt         *time.Time        `json:"finished_at,omitempty"`
+	LogLocation        string            `json:"log_location,omitempty"` // S3 URI to task log
+	ExitCode           *int32            `json:"exit_code,omitempty"`    // from TES executor log, not .exitcode file
+	Attempt            int32             `json:"attempt"`                // 0-based retry counter
+	Workspace          *WorkspaceBinding `json:"workspace,omitempty"`
 }
 
 // NewTask creates a Task in QUEUED state with a fresh UUIDv7 ID.

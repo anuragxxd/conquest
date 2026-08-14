@@ -18,9 +18,9 @@ type ServiceInfo struct {
 	SupportedWESVersions         []string                `json:"supported_wes_versions"`
 	SupportedFilesystemProtocols []string                `json:"supported_filesystem_protocols"`
 	WorkflowEngineVersions       map[string]string       `json:"workflow_engine_versions"`
-	SystemStateCounts            map[string]int           `json:"system_state_counts"`
-	AuthInstructionsURL          string                   `json:"auth_instructions_url"`
-	Tags                         map[string]string        `json:"tags,omitempty"`
+	SystemStateCounts            map[string]int          `json:"system_state_counts"`
+	AuthInstructionsURL          string                  `json:"auth_instructions_url"`
+	Tags                         map[string]string       `json:"tags,omitempty"`
 }
 
 // TypeVersions holds the supported versions for a workflow type.
@@ -39,13 +39,13 @@ type TypeVersions struct {
 // JSON-encoded strings in the form, not as native objects. We parse them
 // into json.RawMessage for storage and later use.
 type RunRequest struct {
-	WorkflowType             string          `json:"workflow_type"`
-	WorkflowTypeVersion      string          `json:"workflow_type_version"`
-	WorkflowURL              string          `json:"workflow_url"`
-	WorkflowParams           json.RawMessage `json:"workflow_params,omitempty"`
-	WorkflowEngine           string          `json:"workflow_engine,omitempty"`
-	WorkflowEngineVersion    string          `json:"workflow_engine_version,omitempty"`
-	WorkflowEngineParameters json.RawMessage `json:"workflow_engine_parameters,omitempty"`
+	WorkflowType             string            `json:"workflow_type"`
+	WorkflowTypeVersion      string            `json:"workflow_type_version"`
+	WorkflowURL              string            `json:"workflow_url"`
+	WorkflowParams           json.RawMessage   `json:"workflow_params,omitempty"`
+	WorkflowEngine           string            `json:"workflow_engine,omitempty"`
+	WorkflowEngineVersion    string            `json:"workflow_engine_version,omitempty"`
+	WorkflowEngineParameters json.RawMessage   `json:"workflow_engine_parameters,omitempty"`
 	Tags                     map[string]string `json:"tags,omitempty"`
 }
 
