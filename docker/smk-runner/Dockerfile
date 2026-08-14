@@ -20,9 +20,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 ca-certificates curl git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -o /tmp/miniforge.sh \
-    && bash /tmp/miniforge.sh -b -p /opt/conda \
-    && rm /tmp/miniforge.sh
+# Miniforge ships per-architecture installers, so resolve the asset from the
+# actual build platform instead of hardcoding x86_64 -- that made arm64 builds
+# download the amd64 installer and fail.
+RUN set -eux; \
+    case "$(uname -m)" in \
+        x86_64)  MINIFORGE_ARCH=x86_64 ;; \
+        aarch64|arm64) MINIFORGE_ARCH=aarch64 ;; \
+        *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${MINIFORGE_ARCH}.sh" -o /tmp/miniforge.sh; \
+    bash /tmp/miniforge.sh -b -p /opt/conda; \
+    rm /tmp/miniforge.sh
 
 ENV PATH=/opt/conda/bin:$PATH
 

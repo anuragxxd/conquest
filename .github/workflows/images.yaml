@@ -22,6 +22,10 @@ name: images
 # base images must first be rebuilt as manifest lists; then drop the override
 # below and they will follow the default platforms.
 
+# Publishing only ever runs from master or a version tag. Pull requests do not
+# trigger this workflow at all, and the Docker Hub credentials live in the
+# `master` environment, which is restricted to protected branches -- so a job
+# running from any other ref cannot read them even if the workflow is invoked.
 on:
   push:
     branches: ["master"]
@@ -42,6 +46,9 @@ jobs:
   # Multi-arch images: public bases, no private registry needed.
   # ---------------------------------------------------------------------------
   multiarch:
+    # Secrets live in this environment, which is restricted to protected
+    # branches. A job on any other ref cannot read them.
+    environment: master
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -108,6 +115,7 @@ jobs:
   # The base is public, so this needs no extra credentials.
   # ---------------------------------------------------------------------------
   nextflow-runners:
+    environment: master
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
