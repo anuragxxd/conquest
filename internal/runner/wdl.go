@@ -17,6 +17,8 @@ import (
 
 	wdlengine "github.com/anuragxxd/conquest/internal/engine/wdl"
 	"github.com/anuragxxd/conquest/internal/objstore"
+
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
 
 var wdlImportPattern = regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"`)
@@ -38,6 +40,11 @@ type WDLConfig struct {
 }
 
 func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
+	// Shared workspaces are written by both this runner and task pods that may
+	// run as a different UID. Clear the umask so everything we create stays
+	// group/other writable. No-op for emptydir runs.
+	sharedfs.ApplyUmask(log)
+
 	log.Info("starting wdl runner",
 		"run_id", cfg.RunID,
 		"repo_url", cfg.RepoURL,

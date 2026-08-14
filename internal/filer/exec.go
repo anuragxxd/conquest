@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/anuragxxd/conquest/internal/objstore"
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
 
 // ExecAndStageOut runs the user's executor command, uploads declared
@@ -130,6 +131,12 @@ func writeTerminationMessage(exitCode int, status, errMsg string) {
 
 // RunExecWrapper is the entry point for the "filer exec" subcommand.
 func RunExecWrapper(log *slog.Logger) {
+	// Clear the umask before running the user command so that files this task
+	// creates on a shared workspace stay writable by task pods running under a
+	// different UID. Applied here rather than in the workflow image because
+	// this wrapper is the one process we control on every executor.
+	sharedfs.ApplyUmask(log)
+
 	manifestJSON := os.Getenv("STAGE_MANIFEST")
 	if manifestJSON == "" {
 		log.Error("STAGE_MANIFEST env var is required")

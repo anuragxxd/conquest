@@ -9,12 +9,13 @@ import (
 	"log/slog"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/anuragxxd/conquest/internal/domain"
+	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
 
 // WorkspaceConfig holds operator-supplied workspace settings, loaded from
@@ -95,14 +96,14 @@ func NewWorkspaceStrategy(client kubernetes.Interface, cfg WorkspaceConfig, name
 			csiSecretNS = namespace
 		}
 		return &objectFSWorkspace{
-			client:              client,
-			namespace:           namespace,
-			size:                cfg.Size,
-			s3Bucket:            cfg.S3Bucket,
-			layoutVersion:       cfg.LayoutVersion,
-			csiSecretName:       cfg.ObjectFSCSISecretName,
-			csiSecretNamespace:  csiSecretNS,
-			log:                 log,
+			client:             client,
+			namespace:          namespace,
+			size:               cfg.Size,
+			s3Bucket:           cfg.S3Bucket,
+			layoutVersion:      cfg.LayoutVersion,
+			csiSecretName:      cfg.ObjectFSCSISecretName,
+			csiSecretNamespace: csiSecretNS,
+			log:                log,
 		}
 	}
 	if !cfg.IsPVC() {
@@ -195,8 +196,8 @@ func (b *pvcWorkspaceBase) createPVC(ctx context.Context, runID string, accessMo
 			Name:      name,
 			Namespace: b.namespace,
 			Labels: map[string]string{
-				LabelRunID:   runID,
-				LabelManaged: "conquest",
+				LabelRunID:                   runID,
+				LabelManaged:                 "conquest",
 				"conquest.io/workspace-mode": string(accessMode),
 			},
 		},
@@ -287,7 +288,7 @@ func pvcTaskVolumes(binding *domain.WorkspaceBinding, taskID, mountPath, scope s
 // sharedRunnerEnv returns the CONQUEST_SHARED_WORKSPACE env var for PVC modes.
 func sharedRunnerEnv() []corev1.EnvVar {
 	return []corev1.EnvVar{
-		{Name: "CONQUEST_SHARED_WORKSPACE", Value: "true"},
+		{Name: sharedfs.SharedWorkspaceEnv, Value: "true"},
 	}
 }
 
@@ -469,8 +470,8 @@ func (o *objectFSWorkspace) Provision(ctx context.Context, runID string) (*domai
 		ObjectMeta: metav1.ObjectMeta{
 			Name: pv,
 			Labels: map[string]string{
-				LabelRunID:   runID,
-				LabelManaged: "conquest",
+				LabelRunID:                   runID,
+				LabelManaged:                 "conquest",
 				"conquest.io/workspace-mode": "objectfs",
 			},
 		},
@@ -479,7 +480,7 @@ func (o *objectFSWorkspace) Provision(ctx context.Context, runID string) (*domai
 			Capacity: corev1.ResourceList{
 				corev1.ResourceStorage: qty,
 			},
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
 			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
 			ClaimRef: &corev1.ObjectReference{
 				Namespace: o.namespace,
@@ -521,8 +522,8 @@ func (o *objectFSWorkspace) Provision(ctx context.Context, runID string) (*domai
 			Name:      claim,
 			Namespace: o.namespace,
 			Labels: map[string]string{
-				LabelRunID:   runID,
-				LabelManaged: "conquest",
+				LabelRunID:                   runID,
+				LabelManaged:                 "conquest",
 				"conquest.io/workspace-mode": "objectfs",
 			},
 		},
