@@ -26,8 +26,8 @@ FROM ${NXF_BASE_IMAGE}
 USER root
 
 # Copy conquest binary.
-COPY --from=go-builder /conquest /usr/local/bin/conquest
-RUN chmod 755 /usr/local/bin/conquest
+# --chmod avoids a second 32MB layer duplicating the binary just to set a bit.
+COPY --from=go-builder --chmod=755 /conquest /usr/local/bin/conquest
 
 # Curated plugin allowlist. The runner pod can override this at runtime.
 ARG NXF_PLUGINS_ALLOWED="nf-ga4gh,nf-amazon,nf-schema,nf-core-utils,nf-fgbio,nf-prov"

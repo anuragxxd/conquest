@@ -64,8 +64,8 @@ RUN useradd -u 1000 -m conquest \
     && mkdir -p /workspace /tmp \
     && chown -R 1000:1000 /workspace /tmp /opt/conda
 
-COPY --from=go-builder /conquest /usr/local/bin/conquest
-RUN chmod 755 /usr/local/bin/conquest
+# --chmod avoids a second 32MB layer duplicating the binary just to set a bit.
+COPY --from=go-builder --chmod=755 /conquest /usr/local/bin/conquest
 
 USER 1000:1000
 WORKDIR /workspace

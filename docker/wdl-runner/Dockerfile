@@ -24,8 +24,8 @@ RUN pip install --no-cache-dir \
     miniwdl==1.12.1 \
     /opt/miniwdl_conquest_tes
 
-COPY --from=go-builder /conquest /usr/local/bin/conquest
-RUN chmod 755 /usr/local/bin/conquest
+# --chmod avoids a second 32MB layer duplicating the binary just to set a bit.
+COPY --from=go-builder --chmod=755 /conquest /usr/local/bin/conquest
 
 RUN useradd -u 1000 -m conquest \
     && mkdir -p /workspace /tmp \

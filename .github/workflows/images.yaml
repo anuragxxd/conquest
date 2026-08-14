@@ -5,49 +5,215 @@ name: images
 #   push to master  -> :latest  (+ :sha-<short>)
 #   push tag vX.Y.Z -> :X.Y.Z   (+ :X.Y, :X, :latest)
 #
+# Job graph
+# ---------
+#   changes ──> nf-runtime ──> nextflow-runners
+#           └─> multiarch (independent)
+#
+# The nf-*-runner images are nothing but the conquest binary layered onto a
+# curated Nextflow runtime base, so they must never be built against a base
+# that failed or is stale. `needs` enforces that ordering.
+#
+# The runtime bases carry the JVM, a pinned Nextflow and its plugins. They are
+# slow to build (package installs, network downloads, and a JVM running under
+# QEMU for arm64) and change only when a Nextflow or plugin pin moves, so the
+# `changes` job gates them on their own sources. When skipped, the runners
+# still run and reuse the published bases.
+#
 # Architectures
 # -------------
-# The server, WDL and Snakemake images build from public Debian/Alpine bases
-# and are published as linux/amd64 + linux/arm64 manifest lists.
+# Everything is linux/amd64 + linux/arm64. The Nextflow bases were previously
+# amd64-only because the image had no source anywhere and could not be rebuilt;
+# docker/nf-runtime/Dockerfile now reconstructs it, and every component
+# (amazoncorretto, the Nextflow launcher, JAR plugins) is arch-portable.
 #
-# The Nextflow runners are amd64-only. They layer the conquest binary onto a
-# curated Nextflow runtime base (conquest-nf-runtime) that is itself published
-# for linux/amd64 only:
-#
-#   $ docker buildx imagetools inspect $NXF_RUNTIME_REPO:nf-24.10.4
-#     Platform: linux/amd64
-#
-# Requesting arm64 for those would fail at the FROM, so the matrix pins them
-# to amd64 rather than failing the build. To make them multi-arch, the curated
-# base images must first be rebuilt as manifest lists; then drop the override
-# below and they will follow the default platforms.
+# Secrets live in the `master` environment, which is restricted to protected
+# branches, so no unprotected ref can read them or publish.
 
-# Publishing only ever runs from master or a version tag. Pull requests do not
-# trigger this workflow at all, and the Docker Hub credentials live in the
-# `master` environment, which is restricted to protected branches -- so a job
-# running from any other ref cannot read them even if the workflow is invoked.
 on:
   push:
     branches: ["master"]
     tags: ["v*.*.*"]
   workflow_dispatch:
+    inputs:
+      force_runtime:
+        description: "Rebuild the Nextflow runtime bases even if unchanged"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 env:
-  DEFAULT_PLATFORMS: linux/amd64,linux/arm64
-  # Curated Nextflow runtime bases, public on Docker Hub.
-  NXF_RUNTIME_REPO: ${{ vars.NXF_RUNTIME_REPO || 'docker.io/anurag1201/conquest-nf-runtime' }}
+  PLATFORMS: linux/amd64,linux/arm64
   NXF_PLUGINS_ALLOWED: nf-ga4gh,nf-amazon,nf-schema,nf-core-utils,nf-fgbio,nf-prov
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Multi-arch images: public bases, no private registry needed.
+  # Decide whether the runtime bases need rebuilding.
+  # ---------------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      nf_runtime: ${{ steps.filter.outputs.nf_runtime }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect runtime source changes
+        id: filter
+        env:
+          FORCE: ${{ github.event.inputs.force_runtime }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -eu
+          emit() { echo "nf_runtime=$1" >> "$GITHUB_OUTPUT"; echo "nf_runtime=$1"; }
+
+          # Manual runs rebuild only when explicitly asked.
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            [ "$FORCE" = "true" ] && emit true || emit false
+            exit 0
+          fi
+
+          # Version tags reuse the existing bases: the runtime images are tagged
+          # by Nextflow version, not by the project's semver, so a release tag
+          # implies nothing about them.
+          if [ "$EVENT" = "push" ] && [ "${GITHUB_REF#refs/tags/}" != "$GITHUB_REF" ]; then
+            emit false; exit 0
+          fi
+
+          # New branch or force-push with no usable base commit: rebuild.
+          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            emit true; exit 0
+          fi
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            emit true; exit 0
+          fi
+
+          if git diff --name-only "$BEFORE" "$SHA" \
+              | grep -qE '^docker/nf-runtime/|^\.github/workflows/images\.yaml$'; then
+            emit true
+          else
+            emit false
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Curated Nextflow runtime bases. Must publish before the runners build.
+  # ---------------------------------------------------------------------------
+  nf-runtime:
+    needs: changes
+    if: needs.changes.outputs.nf_runtime == 'true'
+    environment: master
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nxf_version: "24.10.4"
+            plugins: "nf-ga4gh@1.3.0 nf-amazon@2.9.0"
+          - nxf_version: "25.04.3"
+            plugins: "nf-ga4gh@1.3.0 nf-amazon@2.9.0"
+          - nxf_version: "25.10.2"
+            plugins: "nf-ga4gh@1.4.0 nf-amazon@2.9.0"
+          - nxf_version: "25.10.4"
+            plugins: "nf-ga4gh@1.4.0 nf-amazon@2.9.0"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push runtime base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/nf-runtime/Dockerfile
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            NXF_VER=${{ matrix.nxf_version }}
+            NXF_PREINSTALL_PLUGINS=${{ matrix.plugins }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/conquest-nf-runtime:nf-${{ matrix.nxf_version }}
+          cache-from: type=gha,scope=nf-runtime-${{ matrix.nxf_version }}
+          cache-to: type=gha,mode=max,scope=nf-runtime-${{ matrix.nxf_version }}
+          provenance: false
+
+  # ---------------------------------------------------------------------------
+  # Nextflow runners: the conquest binary on top of the runtime base.
+  # ---------------------------------------------------------------------------
+  nextflow-runners:
+    needs: [changes, nf-runtime]
+    # Proceed when the runtime built, or when it was skipped because nothing
+    # about it changed. Never proceed if it actually failed.
+    if: ${{ !cancelled() && (needs.nf-runtime.result == 'success' || needs.nf-runtime.result == 'skipped') }}
+    environment: master
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nxf_version: ["24.10.4", "25.04.3", "25.10.2", "25.10.4"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/conquest-nf-${{ matrix.nxf_version }}-runner
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=sha,prefix=sha-,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/nf-runner/Dockerfile
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          build-args: |
+            NXF_BASE_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/conquest-nf-runtime:nf-${{ matrix.nxf_version }}
+            NXF_PLUGINS_ALLOWED=${{ env.NXF_PLUGINS_ALLOWED }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=nf-${{ matrix.nxf_version }}
+          cache-to: type=gha,mode=max,scope=nf-${{ matrix.nxf_version }}
+          provenance: false
+
+  # ---------------------------------------------------------------------------
+  # Server, WDL and Snakemake images: public bases, no dependency on the above.
   # ---------------------------------------------------------------------------
   multiarch:
-    # Secrets live in this environment, which is restricted to protected
-    # branches. A job on any other ref cannot read them.
     environment: master
     runs-on: ubuntu-latest
     strategy:
@@ -102,62 +268,10 @@ jobs:
           context: .
           file: ${{ matrix.file }}
           push: true
-          platforms: ${{ env.DEFAULT_PLATFORMS }}
+          platforms: ${{ env.PLATFORMS }}
           build-args: ${{ matrix.build_args }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
-          provenance: false
-
-  # ---------------------------------------------------------------------------
-  # Nextflow runners: amd64 only, because the curated base is amd64-only.
-  # The base is public, so this needs no extra credentials.
-  # ---------------------------------------------------------------------------
-  nextflow-runners:
-    environment: master
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        nxf_version: ["24.10.4", "25.04.3", "25.10.2", "25.10.4"]
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/conquest-nf-${{ matrix.nxf_version }}-runner
-          tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
-            type=sha,prefix=sha-,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
-
-      - name: Build and push (linux/amd64 only)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/nf-runner/Dockerfile
-          push: true
-          platforms: linux/amd64
-          build-args: |
-            NXF_BASE_IMAGE=${{ env.NXF_RUNTIME_REPO }}:nf-${{ matrix.nxf_version }}
-            NXF_PLUGINS_ALLOWED=${{ env.NXF_PLUGINS_ALLOWED }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=nf-${{ matrix.nxf_version }}
-          cache-to: type=gha,mode=max,scope=nf-${{ matrix.nxf_version }}
           provenance: false
