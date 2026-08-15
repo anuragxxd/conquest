@@ -1,7 +1,7 @@
 // Package source implements workflow source validation and normalization.
 //
-// Batch D scope: public GitHub HTTPS repository URLs only.
-// See TECHDEBT.md TD-014 for the broader adapter/resolver design debt.
+// Scope: public GitHub HTTPS repository URLs only, for every engine.
+// There is no Resolver interface yet — see issue #22. TRS is issue #23.
 package source
 
 import (

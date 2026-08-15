@@ -377,7 +377,7 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tasks go directly to CANCELED (no CANCELING — see TECHDEBT.md TD-003).
+	// Tasks go directly to CANCELED (no CANCELING — see issue #30).
 	if err := domain.ValidateTaskTransition(task.State, domain.StateCanceled); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

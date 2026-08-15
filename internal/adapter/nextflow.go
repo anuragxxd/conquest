@@ -1,6 +1,7 @@
 // Package adapter generates engine-specific configuration from WES run requests.
 //
-// Batch D: Nextflow only. See TECHDEBT.md TD-014 for the broader adapter design.
+// Engines are pluggable via RunAdapter (see registry.go); workflow sources are
+// not — all adapters resolve through internal/source. See issue #22.
 package adapter
 
 import (

@@ -333,10 +333,17 @@ migrations, health probes, and a non-root security context.
 - Versioned storage layout (`v1/`) so the format can evolve without migration
 - **Transparent** object layout in every mode — one object per file, readable
   keys, no chunking. Rules out JuiceFS-style chunk+metadata designs.
-- Permissively licensed dependencies only (Apache 2.0 / MIT / BSD) so the
-  stack can ship to institutional clients without copyleft review
+- Permissively licensed Go dependencies (Apache 2.0 / MIT / BSD). Two
+  non-Go exceptions: the Nextflow runtime bases derive from `amazoncorretto`
+  (GPLv2 with Classpath Exception) and the objectfs CSI driver image comes
+  from `cr.yandex`
 
 ## Tech Debt
 
-Tracked design trade-offs for v1 are documented in
-[`docs/tech-debt.md`](docs/tech-debt.md).
+Tracked as GitHub issues under the
+[`tech-debt`](https://github.com/anuragxxd/conquest/issues?q=is%3Aissue+label%3Atech-debt)
+label, triaged `P0` / `P1` / `P2`. Each carries the verified code evidence
+for its claim.
+
+Design records that outlived their documents live there too — see
+[#33](https://github.com/anuragxxd/conquest/issues/33) for objectfs.
