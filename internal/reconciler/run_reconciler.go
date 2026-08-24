@@ -176,7 +176,7 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 
 	// Cleanup workspace PVC when run enters a terminal state.
 	if targetState.IsTerminal() {
-		r.cleanupWorkspace(ctx, run)
+		r.cleanupWorkspace(ctx, run, targetState)
 	}
 }
 
@@ -193,38 +193,38 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 // (600s for task Jobs, 3600s for runner Jobs).
 //
 // S3 data is untouched — only Kubernetes objects are removed here.
-func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
-	if r.workspace == nil {
-		return
-	}
-	if run.Workspace == nil || !run.Workspace.RequiresCleanup() {
-		return
-	}
+// AFTER:
+func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run, terminalState domain.State) {
+    if r.workspace == nil {
+        return
+    }
+    if run.Workspace == nil || !run.Workspace.RequiresCleanup() {
+        return
+    }
 
-	r.log.Info("cleaning up workspace",
-		"run_id", run.RunID,
-		"kind", run.Workspace.Kind,
-		"claim_name", run.Workspace.ClaimName,
-		"pv_name", run.Workspace.PVName,
-	)
+    r.log.Info("cleaning up workspace",
+        "run_id", run.RunID,
+        "kind", run.Workspace.Kind,
+        "claim_name", run.Workspace.ClaimName,
+        "pv_name", run.Workspace.PVName,
+    )
 
-	// Release Pod references before touching the PVC/PV.
-	if err := r.backend.DeleteRunJobs(ctx, run.RunID); err != nil {
-		r.log.Error("failed to delete run jobs before workspace cleanup",
-			"run_id", run.RunID,
-			"err", err,
-		)
-		// Continue anyway — the PVC delete is still requested and will
-		// complete once the Jobs age out via TTL.
-	}
+    if terminalState == domain.StateComplete {
+        if err := r.backend.DeleteRunJobs(ctx, run.RunID); err != nil {
+            r.log.Error("failed to delete run jobs before workspace cleanup",
+                "run_id", run.RunID,
+                "err", err,
+            )
+        }
+    }
 
-	if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
-		r.log.Error("failed to cleanup workspace",
-			"run_id", run.RunID,
-			"kind", run.Workspace.Kind,
-			"claim_name", run.Workspace.ClaimName,
-			"pv_name", run.Workspace.PVName,
-			"err", err,
-		)
-	}
+    if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
+        r.log.Error("failed to cleanup workspace",
+            "run_id", run.RunID,
+            "kind", run.Workspace.Kind,
+            "claim_name", run.Workspace.ClaimName,
+            "pv_name", run.Workspace.PVName,
+            "err", err,
+        )
+    }
 }

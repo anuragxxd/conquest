@@ -225,3 +225,49 @@ func (s *runEventStoreRecorder) Append(_ context.Context, event *domain.Event) e
 func (s *runEventStoreRecorder) ListByRunID(context.Context, string) ([]*domain.Event, error) {
 	return nil, nil
 }
+
+func TestRunReconciler_DoesNotDeleteJobsOnFailedRun(t *testing.T) {
+    rec := &orderRecorder{}
+    be := &orderedBackend{
+        runBackendRecorder: runBackendRecorder{
+            status: &backend.BackendStatus{
+                Phase:  domain.StateExecutorError,
+                Reason: "nextflow failed",
+            },
+        },
+        rec: rec,
+    }
+    r := NewRunReconciler(
+        &runStoreRecorder{}, &runEventStoreRecorder{}, be,
+        DefaultConfig(),
+        slog.New(slog.NewTextHandler(io.Discard, nil)),
+    )
+    r.SetWorkspaceCleaner(&orderedCleaner{rec: rec})
+
+    run := domain.NewRun("NFL", "DSL2", "nextflow", "24.10.4", nil, "", "v1", "")
+    run.State = domain.StateRunning
+    run.BackendRef = "runner-job"
+    run.Workspace = &domain.WorkspaceBinding{
+        Kind:      domain.WorkspaceKindPVC,
+        ClaimName: "conquest-workspace-x",
+    }
+
+    r.reconcileRun(context.Background(), run)
+
+    // After the fix: delete-jobs must NOT appear for a failed run.
+    for _, step := range rec.seq {
+        if step == "delete-jobs" {
+            t.Fatalf("DeleteRunJobs was called for a failed run — pod logs will be destroyed. seq: %v", rec.seq)
+        }
+    }
+    // Workspace cleanup (PVC deletion) is still expected to be requested.
+    var cleanedUp bool
+    for _, step := range rec.seq {
+        if step == "cleanup-workspace" {
+            cleanedUp = true
+        }
+    }
+    if !cleanedUp {
+        t.Fatal("workspace cleanup was not called — PVC will never be released")
+    }
+}

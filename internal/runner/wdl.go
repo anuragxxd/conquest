@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	wdlengine "github.com/anuragxxd/conquest/internal/engine/wdl"
 	"github.com/anuragxxd/conquest/internal/objstore"
@@ -64,6 +65,15 @@ func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
 		return fmt.Errorf("create run log: %w", err)
 	}
 	defer logFile.Close()
+
+	defer func() {
+		uploadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := uploadRunLog(uploadCtx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region,
+			cfg.RunID, cfg.RunLogKey, logFilePath, log); err != nil {
+			log.Error("failed to upload run log", "err", err)
+		}
+	}()
 
 	if err := prepareGitCheckout(ctx, cfg.RepoURL, cfg.Revision, workflowDir); err != nil {
 		return fmt.Errorf("prepare workflow checkout: %w", err)
@@ -127,12 +137,6 @@ func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
 
 	log.Info("executing miniwdl", "cmd", "miniwdl "+strings.Join(cmdArgs, " "))
 	runErr := cmd.Run()
-
-	// Always attempt to upload the run log, even on failure.
-	uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, logFilePath, log)
-	if uploadErr != nil {
-		log.Error("failed to upload run log", "err", uploadErr)
-	}
 
 	// Locate the miniwdl output directory (latest run under runDir).
 	miniwdlOutDir, metaErr := findMiniwdlOutputDir(runDir)
