@@ -134,22 +134,22 @@ func (e *emptyDirWorkspace) Provision(_ context.Context, _ string) (*domain.Work
 
 func (e *emptyDirWorkspace) RunnerVolumes(_ *domain.WorkspaceBinding) (corev1.Volume, corev1.VolumeMount) {
 	return corev1.Volume{
-			Name:         "workspace",
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		}, corev1.VolumeMount{
-			Name:      "workspace",
-			MountPath: "/workspace",
-		}
+		Name:         "workspace",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}, corev1.VolumeMount{
+		Name:      "workspace",
+		MountPath: "/workspace",
+	}
 }
 
 func (e *emptyDirWorkspace) TaskVolumes(_ *domain.WorkspaceBinding, _, mountPath, _ string) (corev1.Volume, corev1.VolumeMount) {
 	return corev1.Volume{
-			Name:         "workdir",
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		}, corev1.VolumeMount{
-			Name:      "workdir",
-			MountPath: mountPath,
-		}
+		Name:         "workdir",
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	}, corev1.VolumeMount{
+		Name:      "workdir",
+		MountPath: mountPath,
+	}
 }
 
 func (e *emptyDirWorkspace) TaskAffinity(_ *domain.WorkspaceBinding, _ string) *corev1.Affinity {
@@ -241,17 +241,17 @@ func (b *pvcWorkspaceBase) deletePVC(ctx context.Context, claimName string) erro
 // pvcRunnerVolumes builds the volume + mount for the runner container.
 func pvcRunnerVolumes(binding *domain.WorkspaceBinding) (corev1.Volume, corev1.VolumeMount) {
 	return corev1.Volume{
-			Name: "workspace",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: binding.ClaimName,
-				},
+		Name: "workspace",
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: binding.ClaimName,
 			},
-		}, corev1.VolumeMount{
-			Name:      "workspace",
-			MountPath: "/workspace",
-			SubPath:   "shared",
-		}
+		},
+	}, corev1.VolumeMount{
+		Name:      "workspace",
+		MountPath: "/workspace",
+		SubPath:   "shared",
+	}
 }
 
 // pvcTaskVolumes builds the volume + mount for a task container.
@@ -272,17 +272,17 @@ func pvcTaskVolumes(binding *domain.WorkspaceBinding, taskID, mountPath, scope s
 	}
 
 	return corev1.Volume{
-			Name: "workdir",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: binding.ClaimName,
-				},
+		Name: "workdir",
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: binding.ClaimName,
 			},
-		}, corev1.VolumeMount{
-			Name:      "workdir",
-			MountPath: effectiveMountPath,
-			SubPath:   subPath,
-		}
+		},
+	}, corev1.VolumeMount{
+		Name:      "workdir",
+		MountPath: effectiveMountPath,
+		SubPath:   subPath,
+	}
 }
 
 // sharedRunnerEnv returns the CONQUEST_SHARED_WORKSPACE env var for PVC modes.
@@ -565,16 +565,16 @@ func (o *objectFSWorkspace) RunnerVolumes(binding *domain.WorkspaceBinding) (cor
 	// ObjectFS mounts at /workspace with no subPath — the S3 prefix IS the
 	// run-scoped root, so /workspace/foo maps to s3://.../workspace/foo.
 	return corev1.Volume{
-			Name: "workspace",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: binding.ClaimName,
-				},
+		Name: "workspace",
+		VolumeSource: corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: binding.ClaimName,
 			},
-		}, corev1.VolumeMount{
-			Name:      "workspace",
-			MountPath: "/workspace",
-		}
+		},
+	}, corev1.VolumeMount{
+		Name:      "workspace",
+		MountPath: "/workspace",
+	}
 }
 
 func (o *objectFSWorkspace) TaskVolumes(binding *domain.WorkspaceBinding, taskID, mountPath, scope string) (corev1.Volume, corev1.VolumeMount) {
