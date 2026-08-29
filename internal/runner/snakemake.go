@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/anuragxxd/conquest/internal/sharedfs"
 )
@@ -89,6 +90,14 @@ func RunSnakemake(ctx context.Context, cfg SnakemakeConfig, log *slog.Logger) er
 		return fmt.Errorf("create run log: %w", err)
 	}
 	defer logFile.Close()
+	defer func() {
+		uploadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := uploadRunLog(uploadCtx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region,
+			cfg.RunID, cfg.RunLogKey, workspaceDir+"/run.log", log); err != nil {
+			log.Error("failed to upload run log", "err", err)
+		}
+	}()
 
 	args := buildSnakemakeArgs(cfg, configFile)
 
@@ -121,10 +130,10 @@ func RunSnakemake(ctx context.Context, cfg SnakemakeConfig, log *slog.Logger) er
 	log.Info("executing snakemake", "cmd", "snakemake "+strings.Join(args, " "), "directory", cfg.Directory)
 
 	runErr := cmd.Run()
-	uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, filepath.Join(workspaceDir, "run.log"), log)
-	if uploadErr != nil {
-		log.Error("failed to upload run log", "err", uploadErr)
-	}
+	// uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, filepath.Join(workspaceDir, "run.log"), log)
+	// if uploadErr != nil {
+	// 	log.Error("failed to upload run log", "err", uploadErr)
+	// }
 	if runErr != nil {
 		return fmt.Errorf("snakemake execution failed: %w", runErr)
 	}

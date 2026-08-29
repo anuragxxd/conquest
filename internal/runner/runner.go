@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
 	nfengine "github.com/anuragxxd/conquest/internal/engine/nextflow"
@@ -105,6 +106,15 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	}
 	defer logFile.Close()
 
+	defer func() {
+		uploadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := uploadRunLog(uploadCtx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region,
+			cfg.RunID, cfg.RunLogKey, workspaceDir+"/run.log", log); err != nil {
+			log.Error("failed to upload run log", "err", err)
+		}
+	}()
+
 	// Execute Nextflow.
 	nfCmd := exec.CommandContext(ctx, "nextflow", gen.CLIArgs...)
 	nfCmd.Dir = workspaceDir
@@ -124,10 +134,10 @@ func Run(ctx context.Context, cfg Config, log *slog.Logger) error {
 	nfErr := nfCmd.Run()
 
 	// Upload the run log to S3 regardless of success/failure.
-	uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, workspaceDir+"/run.log", log)
-	if uploadErr != nil {
-		log.Error("failed to upload run log", "err", uploadErr)
-	}
+	// uploadErr := uploadRunLog(ctx, cfg.S3Endpoint, cfg.S3Bucket, cfg.S3Region, cfg.RunID, cfg.RunLogKey, workspaceDir+"/run.log", log)
+	// if uploadErr != nil {
+	// 	log.Error("failed to upload run log", "err", uploadErr)
+	// }
 
 	if nfErr != nil {
 		return fmt.Errorf("nextflow execution failed: %w", nfErr)
