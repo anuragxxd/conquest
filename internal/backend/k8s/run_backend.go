@@ -32,6 +32,7 @@ type RunConfig struct {
 	EphemeralStorageRequest string
 	EphemeralStorageLimit   string
 	Workspace               WorkspaceConfig
+	PodSecurity             PodSecurityConfig
 }
 
 var _ backend.RunBackend = (*RunBackend)(nil)

@@ -66,6 +66,14 @@ type Config struct {
 	// by the static PVs that Conquest creates per run.
 	ObjectFSCSISecretName      string // default: "csi-s3-secret"
 	ObjectFSCSISecretNamespace string // default: same as K8sNamespace
+
+	// Pod security for runner and task pods. "restricted" (default) satisfies
+	// the restricted Pod Security Standard and runs every container as
+	// PodRunAsUser/PodRunAsGroup. "baseline" lets executor images run as the
+	// user they declare, which is often root.
+	PodSecurity   string // "restricted" or "baseline"
+	PodRunAsUser  int64  // default: 1000
+	PodRunAsGroup int64  // default: 1000; also the pod fsGroup
 }
 
 func Load() (*Config, error) {
@@ -143,6 +151,10 @@ func Load() (*Config, error) {
 
 		ObjectFSCSISecretName:      envOr("CONQUEST_OBJECTFS_CSI_SECRET_NAME", "csi-s3-secret"),
 		ObjectFSCSISecretNamespace: strings.TrimSpace(os.Getenv("CONQUEST_OBJECTFS_CSI_SECRET_NAMESPACE")), // defaults to K8sNamespace below
+
+		PodSecurity:   envOr("CONQUEST_POD_SECURITY", "restricted"),
+		PodRunAsUser:  int64(envIntOr("CONQUEST_POD_RUN_AS_USER", 1000)),
+		PodRunAsGroup: int64(envIntOr("CONQUEST_POD_RUN_AS_GROUP", 1000)),
 	}
 
 	// Default CSI secret namespace to the K8s namespace if not explicitly set.
@@ -176,6 +188,21 @@ func Load() (*Config, error) {
 	}
 	if c.RunnerEphemeralStorageLimit == "" {
 		return nil, fmt.Errorf("CONQUEST_RUNNER_EPHEMERAL_STORAGE_LIMIT is required")
+	}
+
+	// Pod security validation.
+	switch c.PodSecurity {
+	case "restricted":
+		if c.PodRunAsUser <= 0 {
+			return nil, fmt.Errorf("CONQUEST_POD_RUN_AS_USER must be a non-root UID when CONQUEST_POD_SECURITY is 'restricted', got %d", c.PodRunAsUser)
+		}
+		if c.PodRunAsGroup < 0 {
+			return nil, fmt.Errorf("CONQUEST_POD_RUN_AS_GROUP must not be negative, got %d", c.PodRunAsGroup)
+		}
+	case "baseline":
+		// valid
+	default:
+		return nil, fmt.Errorf("CONQUEST_POD_SECURITY must be 'restricted' or 'baseline', got %q", c.PodSecurity)
 	}
 
 	// Workspace validation.

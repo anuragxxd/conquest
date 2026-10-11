@@ -47,6 +47,7 @@ type Config struct {
 	StorageSecretName string
 	ImagePullSecrets  []string
 	Workspace         WorkspaceConfig
+	PodSecurity       PodSecurityConfig
 }
 
 // buildJobSpec creates a K8s Job spec from a TES task.
@@ -184,11 +185,12 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: cfg.ServiceAccount,
-					SecurityContext:    podSecurityContextForWorkspace(task.Workspace),
-					ImagePullSecrets:   imagePullSecretRefs(cfg.ImagePullSecrets),
-					Affinity:           affinity,
+					RestartPolicy:                corev1.RestartPolicyNever,
+					ServiceAccountName:           cfg.ServiceAccount,
+					AutomountServiceAccountToken: automountServiceAccountToken(),
+					SecurityContext:              podSecurityContext(cfg.PodSecurity, task.Workspace),
+					ImagePullSecrets:             imagePullSecretRefs(cfg.ImagePullSecrets),
+					Affinity:                     affinity,
 
 					Volumes: volumes,
 
@@ -203,10 +205,12 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "tools", MountPath: "/tools"},
 							},
+							SecurityContext: containerSecurityContext(cfg.PodSecurity),
 						},
 						{
-							Name:  "stage-in",
-							Image: cfg.ConquestImage,
+							Name:            "stage-in",
+							Image:           cfg.ConquestImage,
+							SecurityContext: containerSecurityContext(cfg.PodSecurity),
 							Command: []string{
 								"/tools/conquest", "filer", "stage-in",
 								"--manifest", "/stage/manifest.json",
@@ -232,8 +236,9 @@ func buildJobSpec(task *domain.Task, cfg Config, ws WorkspaceStrategy) (*batchv1
 							Image: exec.Image,
 							// Wrap the user command through the conquest exec wrapper
 							// so outputs are uploaded before the container exits.
-							Command:    append([]string{"/tools/conquest", "filer", "exec", "--"}, exec.Command...),
-							WorkingDir: workdir,
+							Command:         append([]string{"/tools/conquest", "filer", "exec", "--"}, exec.Command...),
+							WorkingDir:      workdir,
+							SecurityContext: containerSecurityContext(cfg.PodSecurity),
 							Env: append(
 								append(
 									append([]corev1.EnvVar{}, envVars...),

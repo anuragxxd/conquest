@@ -174,6 +174,13 @@ func run(log *slog.Logger) error {
 		ObjectFSCSISecretNamespace: cfg.ObjectFSCSISecretNamespace,
 	}
 
+	// Pod security is shared between task and run backends.
+	podSecurity := k8sbackend.PodSecurityConfig{
+		Restricted: cfg.PodSecurity == "restricted",
+		RunAsUser:  cfg.PodRunAsUser,
+		RunAsGroup: cfg.PodRunAsGroup,
+	}
+
 	// Try to create K8s backend (only works inside a K8s cluster).
 	var taskBackend *k8sbackend.Backend
 	var clientset kubernetes.Interface
@@ -196,11 +203,13 @@ func run(log *slog.Logger) error {
 			StorageSecretName: cfg.StorageSecretName,
 			ImagePullSecrets:  cfg.ImagePullSecrets,
 			Workspace:         wsCfg,
+			PodSecurity:       podSecurity,
 		}
 		taskBackend = k8sbackend.NewBackend(clientset, backendCfg, log)
 		log.Info("k8s backend enabled",
 			"namespace", cfg.K8sNamespace,
 			"conquest_image", cfg.ConquestImage,
+			"pod_security", cfg.PodSecurity,
 		)
 	}
 
@@ -215,6 +224,7 @@ func run(log *slog.Logger) error {
 			EphemeralStorageRequest: cfg.RunnerEphemeralStorageRequest,
 			EphemeralStorageLimit:   cfg.RunnerEphemeralStorageLimit,
 			Workspace:               wsCfg,
+			PodSecurity:             podSecurity,
 		}
 		runBackend = k8sbackend.NewRunBackend(clientset, runBackendCfg, log)
 		log.Info("run backend enabled",
