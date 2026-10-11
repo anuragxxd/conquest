@@ -15,6 +15,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 FROM python:3.12-slim
 
 ARG SNAKEMAKE_VERSION=9.17.3
+# Pinned rather than releases/latest. Snakemake is pip-installed into this
+# Miniforge's Python, and 26.5.3-0 moved it to 3.14, for which pandas<3 and
+# immutables publish no wheels, so the build tried to compile them without gcc.
+ARG MINIFORGE_VERSION=26.3.2-3
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash bzip2 ca-certificates curl git \
@@ -29,7 +33,7 @@ RUN set -eux; \
         aarch64|arm64) MINIFORGE_ARCH=aarch64 ;; \
         *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${MINIFORGE_ARCH}.sh" -o /tmp/miniforge.sh; \
+    curl -fsSL "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-${MINIFORGE_ARCH}.sh" -o /tmp/miniforge.sh; \
     bash /tmp/miniforge.sh -b -p /opt/conda; \
     rm /tmp/miniforge.sh
 

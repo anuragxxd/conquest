@@ -27,6 +27,8 @@ FROM python:3.11-slim
 
 # Pin to SM7 — the last release before the v8 breaking changes.
 ARG SNAKEMAKE_VERSION=7.32.4
+# Pinned for reproducible builds; see Dockerfile for why releases/latest broke.
+ARG MINIFORGE_VERSION=26.3.2-3
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -43,7 +45,7 @@ RUN set -eux; \
         aarch64|arm64) MINIFORGE_ARCH=aarch64 ;; \
         *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${MINIFORGE_ARCH}.sh" -o /tmp/miniforge.sh; \
+    curl -fsSL "https://github.com/conda-forge/miniforge/releases/download/${MINIFORGE_VERSION}/Miniforge3-${MINIFORGE_VERSION}-Linux-${MINIFORGE_ARCH}.sh" -o /tmp/miniforge.sh; \
     bash /tmp/miniforge.sh -b -p /opt/conda; \
     rm /tmp/miniforge.sh
 
