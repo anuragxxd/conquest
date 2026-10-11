@@ -1,26 +1,28 @@
 conquest:
   appname: conquest
 
+  # Every Conquest image below is pinned to the same commit. CI publishes
+  # sha-<commit> for all of them on each push to master; bump them together.
   image:
     repository: docker.io/anurag1201/conquest
-    tag: objectfs-v9
+    tag: sha-d618619
     pullPolicy: Always
 
   runnerImage:
     repository: docker.io/anurag1201/conquest-nf-24.10.4-runner
-    tag: objectfs-v9
+    tag: sha-d618619
 
   wdlRunnerImage:
     repository: docker.io/anurag1201/conquest-wdl-runner
-    tag: objectfs-v9
+    tag: sha-d618619
 
   snakemakeRunnerImage:
     repository: docker.io/anurag1201/conquest-smk-9.17.3-runner
-    tag: objectfs-v9
+    tag: sha-d618619
 
   snakemakeTaskImage:
     repository: docker.io/anurag1201/conquest-smk-9.17.3-runner
-    tag: objectfs-v9
+    tag: sha-d618619
 
   snakemakeDefaultJobs: 32
   snakemakeDefaultDiskMB: 8192
@@ -50,9 +52,9 @@ conquest:
   # Optional per-version runner image overrides keyed by resolved Nextflow
   # version, e.g. {"25.04.3": "docker.io/anurag1201/conquest-nf-25.04.3-runner:v1.0.0"}.
   nextflowRunnerImages:
-    "25.04.3": docker.io/anurag1201/conquest-nf-25.04.3-runner:objectfs-v8
-    "25.10.2": docker.io/anurag1201/conquest-nf-25.10.2-runner:objectfs-v8
-    "25.10.4": docker.io/anurag1201/conquest-nf-25.10.4-runner:objectfs-v8
+    "25.04.3": docker.io/anurag1201/conquest-nf-25.04.3-runner:sha-d618619
+    "25.10.2": docker.io/anurag1201/conquest-nf-25.10.2-runner:sha-d618619
+    "25.10.4": docker.io/anurag1201/conquest-nf-25.10.4-runner:sha-d618619
 
   # Optional per-version WDL runner image overrides keyed by resolved
   # miniwdl version, e.g. {"1.12.1": "docker.io/anurag1201/conquest-wdl-runner:v1.0.0"}.
@@ -67,9 +69,9 @@ conquest:
   # The default snakemakeRunnerImage/snakemakeTaskImage above is used for the
   # platform default version (9.17.3). Non-default versions must have an entry here.
   snakemakeRunnerImages:
-    "7.32.4": docker.io/anurag1201/conquest-smk-7.32.4-runner:objectfs-v8
+    "7.32.4": docker.io/anurag1201/conquest-smk-7.32.4-runner:sha-d618619
   snakemakeTaskImages:
-    "7.32.4": docker.io/anurag1201/conquest-smk-7.32.4-runner:objectfs-v8
+    "7.32.4": docker.io/anurag1201/conquest-smk-7.32.4-runner:sha-d618619
 
   service:
     type: ClusterIP
@@ -112,9 +114,10 @@ conquest:
     CONQUEST_S3_BUCKET: "conquest"
     CONQUEST_S3_ENDPOINT: "http://minio.platform.svc.cluster.local:9000"
     CONQUEST_S3_REGION: "us-east-1"
-    CONQUEST_K8S_NAMESPACE: "services"
     CONQUEST_LAYOUT_VERSION: "v1"
     CONQUEST_SERVICE_ACCOUNT: "conquest"
+    # CONQUEST_K8S_NAMESPACE defaults to the release namespace, where the chart's
+    # Role is bound. Set it here only to create Jobs somewhere else.
     # CONQUEST_IMAGE is set automatically from the deployment image in the template.
     # Runner image for Nextflow execution Jobs.
     # CONQUEST_RUNNER_IMAGE is set automatically in the template.
