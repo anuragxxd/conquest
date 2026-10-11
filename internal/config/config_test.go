@@ -133,6 +133,42 @@ func TestLoad_ObjectFSUsesExistingS3Config(t *testing.T) {
 	}
 }
 
+func TestLoad_DefaultsToRestrictedPodSecurity(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.PodSecurity != "restricted" {
+		t.Fatalf("pod security = %q, want restricted", cfg.PodSecurity)
+	}
+	if cfg.PodRunAsUser != 1000 || cfg.PodRunAsGroup != 1000 {
+		t.Fatalf("pod UID:GID = %d:%d, want 1000:1000", cfg.PodRunAsUser, cfg.PodRunAsGroup)
+	}
+}
+
+func TestLoad_RejectsRootUIDForRestrictedPodSecurity(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_POD_RUN_AS_USER", "0")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected root UID to be rejected for restricted pod security")
+	}
+}
+
+func TestLoad_RejectsInvalidPodSecurity(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_POD_SECURITY", "privileged")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected invalid pod security profile error")
+	}
+}
+
 func TestLoad_RejectsInvalidWorkspaceMode(t *testing.T) {
 	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
 	t.Setenv("CONQUEST_S3_BUCKET", "conquest")

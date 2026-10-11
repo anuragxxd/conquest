@@ -36,6 +36,17 @@ conquest:
     storageClass: ""      # optional; empty uses cluster default (pvc only)
     size: "10Gi"          # volume size (used for pvc and objectfs)
 
+  # Pod security for the runner and task pods Conquest creates. "restricted"
+  # satisfies the restricted Pod Security Standard: every container runs as
+  # runAsUser/runAsGroup with seccomp RuntimeDefault, no privilege escalation
+  # and all capabilities dropped. Executor images run as that UID rather than
+  # their own USER. "baseline" lets executor images run as the user they
+  # declare, which is often root.
+  podSecurity:
+    profile: "restricted"  # "restricted" or "baseline"
+    runAsUser: 1000
+    runAsGroup: 1000       # also used as the pod fsGroup
+
   # Optional per-version runner image overrides keyed by resolved Nextflow
   # version, e.g. {"25.04.3": "docker.io/anurag1201/conquest-nf-25.04.3-runner:v1.0.0"}.
   nextflowRunnerImages:

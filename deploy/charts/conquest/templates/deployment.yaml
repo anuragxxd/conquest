@@ -208,3 +208,9 @@ spec:
             - name: CONQUEST_OBJECTFS_CSI_SECRET_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             {{- end }}
+            - name: CONQUEST_POD_SECURITY
+              value: {{ .Values.conquest.podSecurity.profile | quote }}
+            - name: CONQUEST_POD_RUN_AS_USER
+              value: {{ .Values.conquest.podSecurity.runAsUser | quote }}
+            - name: CONQUEST_POD_RUN_AS_GROUP
+              value: {{ .Values.conquest.podSecurity.runAsGroup | quote }}

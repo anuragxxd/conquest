@@ -92,19 +92,21 @@ func buildRunnerJobSpec(
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
-					RestartPolicy:      corev1.RestartPolicyNever,
-					ServiceAccountName: cfg.ServiceAccount,
-					SecurityContext:    podSecurityContextForWorkspace(binding),
-					ImagePullSecrets:   imagePullSecretRefs(cfg.ImagePullSecrets),
-					Volumes:            volumes,
+					RestartPolicy:                corev1.RestartPolicyNever,
+					ServiceAccountName:           cfg.ServiceAccount,
+					AutomountServiceAccountToken: automountServiceAccountToken(),
+					SecurityContext:              podSecurityContext(cfg.PodSecurity, binding),
+					ImagePullSecrets:             imagePullSecretRefs(cfg.ImagePullSecrets),
+					Volumes:                      volumes,
 					Containers: []corev1.Container{
 						{
-							Name:         "runner",
-							Image:        spec.Image,
-							Command:      append([]string(nil), spec.Command...),
-							Args:         append([]string(nil), spec.Args...),
-							Env:          envVars,
-							VolumeMounts: volumeMounts,
+							Name:            "runner",
+							Image:           spec.Image,
+							Command:         append([]string(nil), spec.Command...),
+							Args:            append([]string(nil), spec.Args...),
+							Env:             envVars,
+							VolumeMounts:    volumeMounts,
+							SecurityContext: containerSecurityContext(cfg.PodSecurity),
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:              resource.MustParse("500m"),

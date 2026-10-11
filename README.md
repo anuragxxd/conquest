@@ -192,6 +192,29 @@ the claim, including Pods that have already completed.
 [geesefs]: https://github.com/yandex-cloud/geesefs
 [csi-s3]: https://github.com/yandex-cloud/k8s-csi-s3
 
+## Pod Security
+
+Runner and task pods satisfy the [restricted Pod Security Standard][pss] by
+default (`CONQUEST_POD_SECURITY=restricted`), so Conquest runs in namespaces
+labelled `pod-security.kubernetes.io/enforce=restricted`. Every container runs
+as `CONQUEST_POD_RUN_AS_USER`:`CONQUEST_POD_RUN_AS_GROUP` (default
+`1000:1000`, also the pod `fsGroup`) with seccomp `RuntimeDefault`, no
+privilege escalation and all capabilities dropped.
+
+Executor images therefore run as that UID, not the `USER` they declare. This
+is the same model as nf-core's docker profile (`-u $(id -u):$(id -g)`), which
+nf-core modules are built to run under. Tools that need root, or write to a
+root-owned `$HOME`, will fail. Set `CONQUEST_POD_SECURITY=baseline` to let executors run as their
+image's user (often root) on clusters that allow it.
+
+In both profiles, runner and task pods do not mount a ServiceAccount token.
+Only the server talks to the Kubernetes API, so workflow code never holds
+the Conquest ServiceAccount's rights to create and delete Jobs and PVCs.
+`internal/backend/k8s/podsecurity_test.go` checks every generated pod against
+the upstream Pod Security Admission checks.
+
+[pss]: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
+
 ## GA4GH APIs
 
 Conquest implements both GA4GH v1.1 specifications.
@@ -290,6 +313,9 @@ No config files.
 | `CONQUEST_WORKSPACE_ACCESS_MODE`    | `RWX`                | `RWX` or `RWO` (when mode=pvc)     |
 | `CONQUEST_WORKSPACE_SIZE`           | `10Gi`               | PVC / objectfs volume size        |
 | `CONQUEST_OBJECTFS_CSI_SECRET_NAME` | `csi-s3-secret`      | S3 creds for the FUSE mount       |
+| `CONQUEST_POD_SECURITY`             | `restricted`         | `restricted` or `baseline`        |
+| `CONQUEST_POD_RUN_AS_USER`          | `1000`               | UID for runner/task containers    |
+| `CONQUEST_POD_RUN_AS_GROUP`         | `1000`               | GID and fsGroup for those pods    |
 | `CONQUEST_RECONCILER_INTERVAL`      | `5s`                 | How often reconcilers poll K8s    |
 | `CONQUEST_RUNNER_IMAGE`             | —                    | Default Nextflow runner image     |
 | `CONQUEST_WDL_RUNNER_IMAGE`         | —                    | Default WDL runner image          |
