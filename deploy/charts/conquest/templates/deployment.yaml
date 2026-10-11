@@ -105,6 +105,11 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if not .Values.conquest.env.CONQUEST_K8S_NAMESPACE }}
+            # Jobs go where the chart's Role grants access.
+            - name: CONQUEST_K8S_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- end }}
             - name: CONQUEST_INTERNAL_BASE_URL
               value: {{ include "conquest.internalBaseURL" . | quote }}
             - name: DATABASE_HOST
