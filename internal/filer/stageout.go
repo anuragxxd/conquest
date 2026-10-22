@@ -3,6 +3,7 @@ package filer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -21,6 +22,19 @@ type OutputFileLog struct {
 	URL       string `json:"url"`
 	Path      string `json:"path"`
 	SizeBytes string `json:"size_bytes,omitempty"`
+}
+
+// putError marks a failed write to the object store. Stage-out tolerates a
+// declared output that is missing locally, since engines declare outputs a task
+// may not produce, but not a write that the store rejected or never received.
+type putError struct{ err error }
+
+func (e *putError) Error() string { return e.err.Error() }
+func (e *putError) Unwrap() error { return e.err }
+
+func isPutError(err error) bool {
+	var pe *putError
+	return errors.As(err, &pe)
 }
 
 // StageOut uploads declared TES outputs from the local workdir to S3.
@@ -62,6 +76,9 @@ func StageOut(ctx context.Context, client objstore.Client, manifest StageManifes
 		// Handle wildcard outputs (path_prefix pattern from nf-ga4gh).
 		if output.PathPrefix != "" && (strings.Contains(output.Path, "*") || strings.Contains(output.Path, "?")) {
 			logs, err := uploadWildcard(ctx, client, output, manifest.Workdir, log)
+			if isPutError(err) {
+				return outputLogs, fmt.Errorf("output[%d]: %w", i, err)
+			}
 			if err != nil {
 				log.Warn("wildcard upload failed", "output_index", i, "err", err)
 				continue
@@ -74,6 +91,9 @@ func StageOut(ctx context.Context, client objstore.Client, manifest StageManifes
 		// Handle directory outputs.
 		if output.Type == "DIRECTORY" || isDirectory(localPath) {
 			logs, err := uploadDirectory(ctx, client, output, localPath, log)
+			if isPutError(err) {
+				return outputLogs, fmt.Errorf("output[%d]: %w", i, err)
+			}
 			if err != nil {
 				log.Warn("directory upload failed", "output_index", i, "err", err)
 				continue
@@ -85,6 +105,9 @@ func StageOut(ctx context.Context, client objstore.Client, manifest StageManifes
 
 		// Single file upload.
 		uploaded, err := uploadSingleFile(ctx, client, output.URL, localPath, log)
+		if isPutError(err) {
+			return outputLogs, fmt.Errorf("output[%d]: %w", i, err)
+		}
 		if err != nil {
 			log.Warn("file upload failed", "output_index", i, "path", localPath, "err", err)
 			continue
@@ -94,6 +117,9 @@ func StageOut(ctx context.Context, client objstore.Client, manifest StageManifes
 	}
 
 	controlLogs, err := uploadControlFiles(ctx, client, manifest, uploadedPaths, log)
+	if isPutError(err) {
+		return outputLogs, err
+	}
 	if err != nil {
 		log.Warn("control file upload failed", "err", err)
 	} else {
@@ -138,6 +164,9 @@ func uploadControlFiles(ctx context.Context, client objstore.Client, manifest St
 		}
 
 		uploaded, err := uploadSingleFile(ctx, client, baseURL+"/"+name, localPath, log)
+		if isPutError(err) {
+			return logs, err
+		}
 		if err != nil {
 			log.Warn("control file upload failed", "path", localPath, "err", err)
 			continue
@@ -196,7 +225,7 @@ func uploadSingleFile(ctx context.Context, client objstore.Client, s3URL, localP
 	}
 
 	if err := client.Put(ctx, bucket, key, f, fi.Size()); err != nil {
-		return nil, fmt.Errorf("upload to s3://%s/%s: %w", bucket, key, err)
+		return nil, &putError{fmt.Errorf("upload to s3://%s/%s: %w", bucket, key, err)}
 	}
 
 	log.Info("uploaded output", "url", s3URL, "path", localPath, "bytes", fi.Size())
@@ -239,7 +268,7 @@ func uploadDirectory(ctx context.Context, client objstore.Client, output tes.Out
 		}
 
 		if err := client.Put(ctx, bucket, key, f, fi.Size()); err != nil {
-			return fmt.Errorf("upload %s: %w", key, err)
+			return &putError{fmt.Errorf("upload %s: %w", key, err)}
 		}
 
 		log.Info("uploaded dir entry", "key", key, "bytes", fi.Size())
@@ -310,6 +339,9 @@ func uploadWildcard(ctx context.Context, client objstore.Client, output tes.Outp
 
 		if fi.IsDir() {
 			dirLogs, err := uploadDirectory(ctx, client, tes.Output{URL: fmt.Sprintf("s3://%s/%s", bucket, key)}, match, log)
+			if isPutError(err) {
+				return logs, err
+			}
 			if err != nil {
 				log.Warn("wildcard: directory upload failed", "key", key, "err", err)
 				continue
@@ -326,8 +358,7 @@ func uploadWildcard(ctx context.Context, client objstore.Client, output tes.Outp
 
 		if err := client.Put(ctx, bucket, key, f, fi.Size()); err != nil {
 			f.Close()
-			log.Warn("wildcard: upload failed", "key", key, "err", err)
-			continue
+			return logs, &putError{fmt.Errorf("upload %s: %w", key, err)}
 		}
 		f.Close()
 

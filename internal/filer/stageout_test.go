@@ -3,6 +3,7 @@ package filer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,7 @@ type putCall struct {
 type fakeObjstoreClient struct {
 	puts    []putCall
 	objects map[string][]byte
+	putErr  error
 }
 
 func (f *fakeObjstoreClient) Get(_ context.Context, bucket, key string) (io.ReadCloser, error) {
@@ -35,6 +37,9 @@ func (f *fakeObjstoreClient) Get(_ context.Context, bucket, key string) (io.Read
 }
 
 func (f *fakeObjstoreClient) Put(_ context.Context, bucket, key string, r io.Reader, _ int64) error {
+	if f.putErr != nil {
+		return f.putErr
+	}
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -349,5 +354,75 @@ func mustWriteFile(t *testing.T, path, contents string) {
 	}
 	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func TestStageOutFailsWhenObjectStoreRejectsWrite(t *testing.T) {
+	putErr := errors.New("tls: failed to verify certificate: x509: certificate signed by unknown authority")
+	workdir := t.TempDir()
+	mustWriteFile(t, filepath.Join(workdir, "out.txt"), "data")
+	mustWriteFile(t, filepath.Join(workdir, "results", "a.txt"), "a")
+	mustWriteFile(t, filepath.Join(workdir, "glob-1.txt"), "g")
+
+	tests := []struct {
+		name   string
+		output tes.Output
+	}{
+		{"file", tes.Output{URL: "s3://bucket/run/out.txt", Path: filepath.Join(workdir, "out.txt")}},
+		{"directory", tes.Output{URL: "s3://bucket/run/results", Path: filepath.Join(workdir, "results"), Type: "DIRECTORY"}},
+		{"wildcard", tes.Output{URL: "s3://bucket/run/", Path: filepath.Join(workdir, "glob-*.txt"), PathPrefix: workdir}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeObjstoreClient{putErr: putErr}
+			manifest := StageManifest{Workdir: workdir, Outputs: []tes.Output{tt.output}}
+
+			_, err := StageOut(context.Background(), client, manifest, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if !errors.Is(err, putErr) {
+				t.Fatalf("StageOut error = %v, want it to wrap %v", err, putErr)
+			}
+		})
+	}
+}
+
+func TestStageOutFailsWhenControlFileWriteIsRejected(t *testing.T) {
+	putErr := errors.New("access denied")
+	workdir := t.TempDir()
+	mustWriteFile(t, filepath.Join(workdir, ".exitcode"), "0")
+
+	client := &fakeObjstoreClient{putErr: putErr}
+	manifest := StageManifest{
+		Workdir: workdir,
+		Outputs: []tes.Output{
+			// Declared but never produced, so only the control file reaches the store.
+			{URL: "s3://bucket/run/work/task/.command.out", Path: filepath.Join(workdir, ".command.out")},
+		},
+	}
+
+	_, err := StageOut(context.Background(), client, manifest, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !errors.Is(err, putErr) {
+		t.Fatalf("StageOut error = %v, want it to wrap %v", err, putErr)
+	}
+}
+
+func TestStageOutToleratesMissingDeclaredOutput(t *testing.T) {
+	workdir := t.TempDir()
+	mustWriteFile(t, filepath.Join(workdir, "present.txt"), "data")
+
+	client := &fakeObjstoreClient{}
+	manifest := StageManifest{
+		Workdir: workdir,
+		Outputs: []tes.Output{
+			{URL: "s3://bucket/run/missing.txt", Path: filepath.Join(workdir, "missing.txt")},
+			{URL: "s3://bucket/run/present.txt", Path: filepath.Join(workdir, "present.txt")},
+		},
+	}
+
+	logs, err := StageOut(context.Background(), client, manifest, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("StageOut error = %v, want nil for a missing optional output", err)
+	}
+	if len(logs) != 1 || logs[0].URL != "s3://bucket/run/present.txt" {
+		t.Fatalf("StageOut logs = %+v, want only present.txt", logs)
 	}
 }

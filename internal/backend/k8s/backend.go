@@ -231,7 +231,12 @@ func (b *Backend) enrichFromPods(ctx context.Context, job *batchv1.Job, status *
 			if cs.Name == "executor" && cs.State.Terminated != nil {
 				exitCode := int32(cs.State.Terminated.ExitCode)
 				status.ExitCode = &exitCode
-				if exitCode == 0 {
+				// The filer keeps the executor's exit code even when stage-out
+				// fails, so a clean exit can still mean the outputs never landed.
+				if failure, failed := stageOutFailure(cs.State.Terminated.Message); exitCode == 0 && failed {
+					status.Phase = domain.StateSystemError
+					status.Reason = "stage-out failed: " + failure
+				} else if exitCode == 0 {
 					status.Phase = domain.StateComplete
 					status.Reason = "executor completed successfully"
 				} else {
@@ -259,6 +264,23 @@ func (b *Backend) enrichFromPods(ctx context.Context, job *batchv1.Job, status *
 	}); err == nil {
 		status.Logs = string(bs) // re-use Logs field for backend detail
 	}
+}
+
+// stageOutFailure reads the termination message the filer writes after the
+// executor exits. It reports a failure for any status other than "ok"; an
+// empty or unparseable message is not treated as one.
+func stageOutFailure(message string) (string, bool) {
+	var msg struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(message), &msg); err != nil || msg.Status == "" || msg.Status == "ok" {
+		return "", false
+	}
+	if msg.Error == "" {
+		return msg.Status, true
+	}
+	return msg.Status + ": " + msg.Error, true
 }
 
 func waitingReasonIsTerminal(reason string) bool {

@@ -12,6 +12,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	// The filer runs inside the user's executor image, which may ship no CA
+	// bundle at all (quay.io/nextflow/bash doesn't). Embedded roots are used
+	// only when the system has none, so S3 over TLS works from any image.
+	_ "golang.org/x/crypto/x509roots/fallback"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 

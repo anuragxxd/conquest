@@ -115,18 +115,30 @@ func ExecAndStageOut(ctx context.Context, manifestJSON string, command []string,
 	return exitCode
 }
 
+// maxTerminationErrorBytes keeps the message under the kubelet's 4096-byte cap
+// even if JSON escaping grows every byte sixfold. A truncated message is no
+// longer valid JSON, and the backend would then miss the stage-out failure.
+const maxTerminationErrorBytes = 512
+
 // writeTerminationMessage writes a structured termination message
 // to /dev/termination-log for K8s to surface.
 func writeTerminationMessage(exitCode int, status, errMsg string) {
+	_ = os.WriteFile("/dev/termination-log", terminationMessage(exitCode, status, errMsg), 0644)
+}
+
+func terminationMessage(exitCode int, status, errMsg string) []byte {
 	msg := map[string]any{
 		"exit_code": exitCode,
 		"status":    status,
+	}
+	if len(errMsg) > maxTerminationErrorBytes {
+		errMsg = strings.ToValidUTF8(errMsg[:maxTerminationErrorBytes], "") + "..."
 	}
 	if errMsg != "" {
 		msg["error"] = errMsg
 	}
 	data, _ := json.Marshal(msg)
-	_ = os.WriteFile("/dev/termination-log", data, 0644)
+	return data
 }
 
 // RunExecWrapper is the entry point for the "filer exec" subcommand.
