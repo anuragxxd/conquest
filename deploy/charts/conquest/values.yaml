@@ -171,3 +171,29 @@ global:
   # All published images are public on Docker Hub, so no pull secret is needed.
   # Add entries here only when mirroring into a private registry.
   imagePullSecrets: []
+
+# Federation: route tasks to remote GA4GH TES endpoints (Funnel, TESK,
+# Poiesis, proTES, another Conquest). Off by default: every task runs on
+# this cluster. See internal/backend/routing for the schema.
+federation:
+  enabled: false
+  # Name of an existing Secret whose keys become environment variables of
+  # the server; endpoint auth refers to them (password_env, token_env,
+  # client_secret_env).
+  credentialsSecret: ""
+  config:
+    gateway_id: conquest
+    endpoints: []
+    # - name: funnel-a
+    #   url: https://funnel.example.org/v1
+    #   auth: {type: none}
+    #   s3_url_style: endpoint       # Funnel: s3://<s3_host>/<bucket>/<key>
+    #   s3_host: s3.example.org:443  # S3 as the endpoint reaches it
+    #   data_classes: [public]       # run tag conquest.data_class
+    #   client_selectable: true
+    routing:
+      client_hints: false
+      rules: []
+      # - name: qc-remote
+      #   match: {engines: [nextflow], task_names: ["*:FASTQC*"]}
+      #   backends: [funnel-a, local]

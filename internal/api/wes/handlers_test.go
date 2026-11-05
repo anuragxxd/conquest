@@ -113,6 +113,9 @@ func (s *wesTaskStoreStub) UpdateState(context.Context, string, domain.State, do
 }
 func (s *wesTaskStoreStub) SetExitCode(context.Context, string, int32) error    { return nil }
 func (s *wesTaskStoreStub) SetBackendRef(context.Context, string, string) error { return nil }
+func (s *wesTaskStoreStub) SetBackendAssignment(context.Context, string, string, string, json.RawMessage) error {
+	return nil
+}
 func (s *wesTaskStoreStub) SetBackendState(context.Context, string, json.RawMessage) error {
 	return nil
 }

@@ -34,15 +34,15 @@ func (s *TaskStore) Create(ctx context.Context, task *domain.Task) error {
 			created_at, updated_at, started_at, finished_at,
 			log_location, exit_code, attempt,
 			workspace_kind, workspace_claim_name, workspace_access_mode,
-			workspace_pv_name
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+			workspace_pv_name, backend_name, route
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
 		task.TaskID, task.RunID, task.EngineTaskName, task.TESTaskID,
 		string(task.State), task.Resources, task.TaskRequestPayload,
 		task.BackendRef, task.BackendState,
 		task.OutputLogs,
 		task.CreatedAt, task.UpdatedAt, task.StartedAt, task.FinishedAt,
 		task.LogLocation, task.ExitCode, task.Attempt,
-		wsKind, wsClaim, wsAccess, wsPV,
+		wsKind, wsClaim, wsAccess, wsPV, task.BackendName, task.Route,
 	)
 	return err
 }
@@ -54,7 +54,7 @@ const taskColumns = `task_id, run_id, engine_task_name, tes_task_id,
 	created_at, updated_at, started_at, finished_at,
 	log_location, exit_code, attempt,
 	workspace_kind, workspace_claim_name, workspace_access_mode,
-	workspace_pv_name`
+	workspace_pv_name, backend_name, route`
 
 func (s *TaskStore) Get(ctx context.Context, taskID string) (*domain.Task, error) {
 	return s.scanTask(ctx,
@@ -250,6 +250,17 @@ func (s *TaskStore) SetBackendRef(ctx context.Context, taskID string, ref string
 	return err
 }
 
+// SetBackendAssignment records, in one update, which backend runs the task,
+// its ID there and the routing record. A single statement matters: the
+// reconciler dispatches on backend_name, so it must never see a remote
+// backend_ref without the endpoint it belongs to.
+func (s *TaskStore) SetBackendAssignment(ctx context.Context, taskID, backendName, ref string, route json.RawMessage) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE tasks SET backend_name = $1, backend_ref = $2, route = $3, updated_at = NOW() WHERE task_id = $4`,
+		backendName, ref, route, taskID)
+	return err
+}
+
 func (s *TaskStore) SetOutputLogs(ctx context.Context, taskID string, logs json.RawMessage) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE tasks SET output_logs = $1, updated_at = NOW() WHERE task_id = $2`,
@@ -277,7 +288,7 @@ type scannable interface {
 func scanTaskFields(s scannable) (*domain.Task, error) {
 	t := &domain.Task{}
 	var stateStr string
-	var resources, requestPayload, backendState, outputLogs []byte
+	var resources, requestPayload, backendState, outputLogs, route []byte
 	var wsKind, wsClaim, wsAccess, wsPV *string
 	err := s.Scan(
 		&t.TaskID, &t.RunID, &t.EngineTaskName, &t.TESTaskID,
@@ -285,7 +296,7 @@ func scanTaskFields(s scannable) (*domain.Task, error) {
 		&outputLogs,
 		&t.CreatedAt, &t.UpdatedAt, &t.StartedAt, &t.FinishedAt,
 		&t.LogLocation, &t.ExitCode, &t.Attempt,
-		&wsKind, &wsClaim, &wsAccess, &wsPV,
+		&wsKind, &wsClaim, &wsAccess, &wsPV, &t.BackendName, &route,
 	)
 	if err != nil {
 		return nil, err
@@ -302,6 +313,9 @@ func scanTaskFields(s scannable) (*domain.Task, error) {
 	}
 	if outputLogs != nil {
 		t.OutputLogs = json.RawMessage(outputLogs)
+	}
+	if route != nil {
+		t.Route = json.RawMessage(route)
 	}
 	t.Workspace = inflateWorkspaceBinding(wsKind, wsClaim, wsAccess, wsPV)
 	return t, nil

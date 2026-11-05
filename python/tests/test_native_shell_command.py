@@ -185,3 +185,24 @@ def test_absolute_paths_in_commands_resolve_in_the_task(tmp_path, monkeypatch):
     staged = {i.path for i in task.inputs}
     assert str(gtf) in staged
     assert task.executors[0].workdir == str(root)
+
+
+def test_backend_hint_resource_becomes_a_task_tag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    job = FakeJob()
+    job.resources = {"tes_backend": " funnel-a , local ,"}
+
+    task, _ = emptydir_executor(tmp_path)._build_task(job)
+
+    assert task.tags["conquest.tes_backend"] == "funnel-a,local"
+
+
+def test_jobs_without_a_backend_hint_get_no_tag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for resources in ({}, {"tes_backend": 3}, {"tes_backend": " , "}):
+        job = FakeJob()
+        job.resources = resources
+
+        task, _ = emptydir_executor(tmp_path)._build_task(job)
+
+        assert "conquest.tes_backend" not in task.tags

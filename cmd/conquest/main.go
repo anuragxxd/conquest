@@ -23,7 +23,9 @@ import (
 	"github.com/anuragxxd/conquest/internal/api"
 	"github.com/anuragxxd/conquest/internal/api/tes"
 	"github.com/anuragxxd/conquest/internal/api/wes"
+	"github.com/anuragxxd/conquest/internal/backend"
 	k8sbackend "github.com/anuragxxd/conquest/internal/backend/k8s"
+	"github.com/anuragxxd/conquest/internal/backend/routing"
 	"github.com/anuragxxd/conquest/internal/config"
 	"github.com/anuragxxd/conquest/internal/controller"
 	"github.com/anuragxxd/conquest/internal/filer"
@@ -237,17 +239,48 @@ func run(log *slog.Logger) error {
 		)
 	}
 
+	// Task backend: the local Kubernetes backend, wrapped in the routing
+	// backend when remote TES endpoints are configured.
+	var tasks backend.TaskBackend
+	gatewayID := ""
+	if taskBackend != nil {
+		tasks = taskBackend
+		if cfg.FederationConfigFile != "" {
+			fedCfg, err := routing.LoadConfig(cfg.FederationConfigFile)
+			if err != nil {
+				return err
+			}
+			tasks = routing.New(fedCfg, taskBackend, runStore, cfg.S3Bucket, log)
+			gatewayID = fedCfg.GatewayID
+			names := make([]string, len(fedCfg.Endpoints))
+			for i, ep := range fedCfg.Endpoints {
+				names[i] = ep.Name
+			}
+			log.Info("task routing enabled",
+				"endpoints", names,
+				"rules", len(fedCfg.Routing.Rules),
+				"client_hints", fedCfg.Routing.ClientHints,
+				"gateway_id", gatewayID,
+			)
+		}
+	} else if cfg.FederationConfigFile != "" {
+		log.Warn("federation config ignored: no local task backend")
+	}
+
 	// Wire backends into the controller.
 	if runBackend != nil {
 		runCtrl.SetRunBackend(runBackend)
 	}
-	if taskBackend != nil {
-		runCtrl.SetTaskBackend(taskBackend)
+	if tasks != nil {
+		runCtrl.SetTaskBackend(tasks)
 	}
 
 	// HTTP handlers.
 	wesHandler := wes.NewHandler(runCtrl)
-	tesHandler := tes.NewHandler(runStore, taskStore, eventStore, taskBackend)
+	tesHandler := tes.NewHandler(runStore, taskStore, eventStore, tasks)
+	if gatewayID != "" {
+		tesHandler.SetGatewayID(gatewayID)
+	}
 	tesHandler.SetPolicy(&taskpolicy.Policy{
 		Resources: taskpolicy.ResourceLimits{
 			DefaultCPUCores: int32(cfg.TaskDefaultCPUCores),
@@ -273,8 +306,8 @@ func run(log *slog.Logger) error {
 	recCfg := reconciler.DefaultConfig()
 	recCfg.PollInterval = cfg.ReconcilerInterval
 
-	if taskBackend != nil {
-		rec := reconciler.New(taskStore, eventStore, taskBackend, recCfg, log)
+	if tasks != nil {
+		rec := reconciler.New(taskStore, eventStore, tasks, recCfg, log)
 		go rec.Run(appCtx)
 	}
 

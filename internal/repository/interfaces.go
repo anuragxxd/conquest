@@ -50,6 +50,7 @@ type TaskStore interface {
 	UpdateState(ctx context.Context, taskID string, from, to domain.State) error
 	SetExitCode(ctx context.Context, taskID string, code int32) error
 	SetBackendRef(ctx context.Context, taskID string, ref string) error
+	SetBackendAssignment(ctx context.Context, taskID, backendName, ref string, route json.RawMessage) error
 	SetBackendState(ctx context.Context, taskID string, state json.RawMessage) error
 	SetOutputLogs(ctx context.Context, taskID string, logs json.RawMessage) error
 }
