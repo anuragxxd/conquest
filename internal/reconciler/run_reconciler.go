@@ -176,7 +176,7 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 
 	// Cleanup workspace PVC when run enters a terminal state.
 	if targetState.IsTerminal() {
-		r.cleanupWorkspace(ctx, run)
+		r.cleanupWorkspace(ctx, run, targetState)
 	}
 }
 
@@ -193,7 +193,8 @@ func (r *RunReconciler) reconcileRun(ctx context.Context, run *domain.Run) {
 // (600s for task Jobs, 3600s for runner Jobs).
 //
 // S3 data is untouched — only Kubernetes objects are removed here.
-func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
+// AFTER:
+func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run, terminalState domain.State) {
 	if r.workspace == nil {
 		return
 	}
@@ -208,14 +209,17 @@ func (r *RunReconciler) cleanupWorkspace(ctx context.Context, run *domain.Run) {
 		"pv_name", run.Workspace.PVName,
 	)
 
-	// Release Pod references before touching the PVC/PV.
-	if err := r.backend.DeleteRunJobs(ctx, run.RunID); err != nil {
-		r.log.Error("failed to delete run jobs before workspace cleanup",
-			"run_id", run.RunID,
-			"err", err,
-		)
-		// Continue anyway — the PVC delete is still requested and will
-		// complete once the Jobs age out via TTL.
+	// Only delete Jobs eagerly on clean success. For failed/canceled runs,
+	// pod logs are needed for debugging — let TTLSecondsAfterFinished handle
+	// Job cleanup instead. The PVC will stay in Terminating until TTL expires
+	// (up to 3600s for runner jobs), which is acceptable.
+	if terminalState == domain.StateComplete {
+		if err := r.backend.DeleteRunJobs(ctx, run.RunID); err != nil {
+			r.log.Error("failed to delete run jobs before workspace cleanup",
+				"run_id", run.RunID,
+				"err", err,
+			)
+		}
 	}
 
 	if err := r.workspace.Cleanup(ctx, run.Workspace); err != nil {
