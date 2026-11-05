@@ -245,6 +245,90 @@ Conquest manages the full task lifecycle — data staging, resource allocation,
 state tracking, and log capture. The workflow engine submits tasks; Conquest
 handles the rest.
 
+## Federation: Remote TES Endpoints
+
+Conquest can send individual tasks to other GA4GH TES servers (Funnel, TESK,
+Poiesis, proTES, another Conquest) instead of its own Kubernetes cluster.
+Engines are unchanged: they still submit to Conquest's internal TES API, and
+Conquest decides per task where the task runs. Without a federation config,
+every task runs locally, as before.
+
+```
+Engine ──TES──> Conquest internal TES API
+                       │
+                RoutingBackend ──> local Kubernetes (default)
+                       ├─────────> remote TES "funnel-a"
+                       └─────────> remote TES "tesk-b"  ...
+```
+
+Enable it with chart values (`federation.enabled`, `federation.config`) or
+`CONQUEST_FEDERATION_CONFIG=<file>`:
+
+```yaml
+gateway_id: conquest-prod            # Via header; requests carrying it are loops (508)
+endpoints:
+  - name: funnel-a
+    url: https://funnel.example.org/v1   # tasks are created with POST <url>/tasks
+    auth: {type: client_credentials, token_url: https://idp/token,
+           client_id: conquest, client_secret_env: FUNNEL_A_SECRET}
+    tes_version: "1.1"                   # "1.0" endpoints only get tasks 1.0 can express
+    s3_url_style: endpoint               # Funnel: s3://<s3_host>/<bucket>/<key>
+    s3_host: s3.example.org:443          # S3 as the endpoint reaches it
+    optional_file_outputs: true          # missing FILE outputs are skipped, as locally
+    data_classes: [public]               # run tag conquest.data_class must be listed
+    client_selectable: true              # clients may pick it with a hint
+    max_cpu_cores: 16
+routing:
+  client_hints: true
+  rules:                                 # first match wins
+    - name: qc-remote
+      match: {engines: [nextflow], task_names: ["*:FASTQC (*"], run_tags: {site: eu}}
+      backends: [funnel-a, local]        # in order; local is appended unless no_local_fallback
+```
+
+**How a task is routed** (the decision is stored with the task and shown in
+the TES FULL view: `logs[0].metadata["conquest.backend"]` and a `route:`
+system log line):
+
+1. **Local only**: tasks of shared-workspace runs (`pvc`, `objectfs`, all
+   WDL) and tasks with inputs or outputs outside Conquest's bucket.
+2. **Rule**: the first matching rule gives the ordered backends.
+3. **Hint**: tag `conquest.tes_backend` (`"funnel-a,local"`) on the task or
+   the WES run narrows and reorders the rule's backends, or, without a rule,
+   picks client-selectable endpoints. Snakemake rules set it with
+   `resources: tes_backend="funnel-a"`.
+4. **Eligibility**: an endpoint is dropped if the run's data class
+   (`conquest.data_class`, default `unclassified`) isn't in its
+   `data_classes`, the task exceeds its caps, or it's a TES 1.0 endpoint and
+   the task uses 1.1 features (wildcard outputs, streamable inputs,
+   ignore_error, backend_parameters).
+5. **Submission**: backends are tried in order. The next one is tried only if
+   an endpoint certainly refused (connection refused, 4xx, 503). If it may
+   have created the task (timeout, other 5xx), the task fails instead of
+   risking a second run.
+
+**What forwarded tasks look like.** Conquest's own tags are removed and
+`conquest_task_id` is added; S3 URLs are written in the endpoint's style;
+Nextflow brace globs (`*{1,2}.fq.gz`) are expanded into plain wildcards, which
+TES servers' glob implementations lack. For Nextflow tasks, TES 1.1 endpoints
+are also asked for every `.command.*` file (e.g. `.command.env`, which
+nf-ga4gh doesn't declare), as Conquest's own filer uploads them.
+
+**Requirements on remote sites** (none of these can be expressed in TES):
+
+- Read and write access to Conquest's bucket, configured on the remote side.
+- Executor images pullable from there (Conquest's Snakemake task image too).
+- Files staged so the executor's image user can write next to them:
+  Conquest's Snakemake task image runs as UID 1000.
+
+Verified on 2026-11-06 with Funnel develop `a3be3b20` and TESK 1.1.0 /
+tesk-core v0.10.6: `nextflow-io/hello` and `snakemake-hello-world` on each
+endpoint, and nf-core/methylseq 4.2.0 split across local, Funnel and TESK.
+TESK implements TES 1.0: Conquest doesn't send it tasks with wildcard
+outputs (most nf-core processes), and Nextflow tasks with optional or `env`
+outputs fail there, so route only simple Nextflow processes and Snakemake
+jobs to TES 1.0 endpoints.
+
 ## Adapter Architecture
 
 Engine support is pluggable. Each engine implements a `RunAdapter` interface

@@ -74,6 +74,11 @@ type Config struct {
 	PodSecurity   string // "restricted" or "baseline"
 	PodRunAsUser  int64  // default: 1000
 	PodRunAsGroup int64  // default: 1000; also the pod fsGroup
+
+	// FederationConfigFile is the YAML file of remote TES endpoints and
+	// routing rules (see internal/backend/routing). Empty: every task runs
+	// on the local Kubernetes backend.
+	FederationConfigFile string
 }
 
 func Load() (*Config, error) {
@@ -110,6 +115,7 @@ func Load() (*Config, error) {
 		S3Bucket:                      envOr("CONQUEST_S3_BUCKET", "conquest-workflows"),
 		S3Endpoint:                    envOr("CONQUEST_S3_ENDPOINT", ""),
 		S3Region:                      envOr("CONQUEST_S3_REGION", "us-east-1"),
+		FederationConfigFile:          strings.TrimSpace(os.Getenv("CONQUEST_FEDERATION_CONFIG")),
 		K8sNamespace:                  envOr("CONQUEST_K8S_NAMESPACE", "conquest"),
 		LayoutVersion:                 envOr("CONQUEST_LAYOUT_VERSION", storage.LayoutVersion),
 		PageSizeMax:                   envIntOr("CONQUEST_PAGE_SIZE_MAX", 256),

@@ -245,8 +245,11 @@ func (s *taskStoreStub) ListActiveTasks(context.Context, int) ([]*domain.Task, e
 func (s *taskStoreStub) UpdateState(context.Context, string, domain.State, domain.State) error {
 	return nil
 }
-func (s *taskStoreStub) SetExitCode(context.Context, string, int32) error               { return nil }
-func (s *taskStoreStub) SetBackendRef(context.Context, string, string) error            { return nil }
+func (s *taskStoreStub) SetExitCode(context.Context, string, int32) error    { return nil }
+func (s *taskStoreStub) SetBackendRef(context.Context, string, string) error { return nil }
+func (s *taskStoreStub) SetBackendAssignment(context.Context, string, string, string, json.RawMessage) error {
+	return nil
+}
 func (s *taskStoreStub) SetBackendState(context.Context, string, json.RawMessage) error { return nil }
 func (s *taskStoreStub) SetOutputLogs(context.Context, string, json.RawMessage) error   { return nil }
 

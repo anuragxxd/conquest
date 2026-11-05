@@ -31,7 +31,13 @@ type Handler struct {
 	events  repository.EventStore
 	backend backend.TaskBackend // nil if no backend configured (persistence-only mode)
 	policy  *taskpolicy.Policy  // task normalization/validation policy
+	// gatewayID names this Conquest in Via headers of tasks it forwards;
+	// a task arriving with it has come back round a loop of gateways.
+	gatewayID string
 }
+
+// SetGatewayID enables loop detection for tasks forwarded by this Conquest.
+func (h *Handler) SetGatewayID(id string) { h.gatewayID = id }
 
 // NewHandler creates TES handlers.
 func NewHandler(runs repository.RunStore, tasks repository.TaskStore, events repository.EventStore, be backend.TaskBackend) *Handler {
@@ -107,6 +113,10 @@ func (h *Handler) CreateTaskForRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	if h.gatewayID != "" && viaIncludes(r.Header.Values("Via"), h.gatewayID) {
+		writeError(w, http.StatusLoopDetected, "task was forwarded by this Conquest ("+h.gatewayID+"): routing loop")
+		return
+	}
 	var req Task
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -211,6 +221,10 @@ func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, re
 	// If a backend is configured, submit the task for execution.
 	if h.backend != nil {
 		if err := h.backend.Submit(r.Context(), task); err != nil {
+			if task.Route != nil || task.BackendName != "" {
+				// keep how the task was routed, for the audit trail
+				_ = h.tasks.SetBackendAssignment(r.Context(), task.TaskID, task.BackendName, task.BackendRef, task.Route)
+			}
 			if updateErr := h.tasks.UpdateState(r.Context(), task.TaskID, domain.StateQueued, domain.StateSystemError); updateErr != nil {
 				writeError(w, http.StatusInternalServerError, "task created but submission failed, and state update also failed: "+updateErr.Error())
 				return
@@ -218,7 +232,7 @@ func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, re
 			writeError(w, http.StatusInternalServerError, "task created but submission failed: "+err.Error())
 			return
 		}
-		if err := h.tasks.SetBackendRef(r.Context(), task.TaskID, task.BackendRef); err != nil {
+		if err := h.tasks.SetBackendAssignment(r.Context(), task.TaskID, task.BackendName, task.BackendRef, task.Route); err != nil {
 			_ = h.backend.Cancel(context.Background(), task)
 			_ = h.tasks.UpdateState(r.Context(), task.TaskID, domain.StateQueued, domain.StateSystemError)
 			writeError(w, http.StatusInternalServerError, "task created and submitted, but failed to persist backend reference: "+err.Error())
@@ -446,11 +460,58 @@ func domainTaskToTES(t *domain.Task, view string) Task {
 						ExitCode: t.ExitCode,
 					},
 				},
+				Metadata:   backendMetadata(t),
+				SystemLogs: backendSystemLogs(t),
 			},
 		}
 	}
 
 	return resp
+}
+
+// viaIncludes reports whether a Via header (RFC 9110 §7.6.3) lists the
+// given received-by pseudonym.
+func viaIncludes(values []string, id string) bool {
+	for _, value := range values {
+		for _, hop := range strings.Split(value, ",") {
+			fields := strings.Fields(hop)
+			if len(fields) >= 2 && fields[1] == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// backendMetadata says which backend ran the task: "local", or a remote
+// endpoint and the task's ID there.
+func backendMetadata(t *domain.Task) map[string]string {
+	if t.BackendName == "" {
+		if t.Route == nil {
+			return nil
+		}
+		return map[string]string{"conquest.backend": "local"}
+	}
+	return map[string]string{
+		"conquest.backend":        t.BackendName,
+		"conquest.remote_task_id": t.BackendRef,
+	}
+}
+
+// backendSystemLogs returns the routing outcome and, for remote tasks, the
+// endpoint's last system log lines.
+func backendSystemLogs(t *domain.Task) []string {
+	var logs []string
+	if t.Route != nil {
+		logs = append(logs, "route: "+string(t.Route))
+	}
+	var state struct {
+		SystemLogs []string `json:"system_logs"`
+	}
+	if t.BackendState != nil && json.Unmarshal(t.BackendState, &state) == nil {
+		logs = append(logs, state.SystemLogs...)
+	}
+	return logs
 }
 
 func timeStr(t *time.Time) string {
