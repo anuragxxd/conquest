@@ -3,8 +3,9 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
-from typing import AsyncGenerator, List, Optional
+import shlex
+from pathlib import Path, PurePosixPath
+from typing import AsyncGenerator, Iterable, List, Optional
 
 import tes
 
@@ -51,6 +52,34 @@ common_settings = CommonSettings(
     init_seconds_before_status_checks=10,
     can_transfer_local_files=True,
 )
+
+
+def native_shell_command(shellcmd: str, output_paths: Iterable[str]) -> str:
+    """Prefix a rule's shell command with creating its outputs' parent dirs.
+
+    Snakemake creates the parent directory of every output, log and benchmark
+    file before it runs a job (``Job.prepare``), but it does so on the runner's
+    filesystem. A native-shell task runs ``job.shellcmd`` directly, without
+    Snakemake, so on a task filesystem that isn't shared with the runner
+    (emptydir mode, or any TES other than Conquest's own) those directories
+    don't exist and ``echo x > out/file.txt`` fails. Creating them in the task
+    itself keeps this working on every TES backend. As in Snakemake, the
+    outputs themselves are not created, so ``directory()`` outputs remain the
+    rule's job.
+    """
+    parents = sorted(
+        {
+            parent
+            for parent in (str(PurePosixPath(path).parent) for path in output_paths)
+            if parent not in {"", ".", "/"}
+        }
+    )
+    if not parents:
+        return shellcmd
+    quoted = " ".join(shlex.quote(parent) for parent in parents)
+    # A separate line, not `&&`, so that rule commands starting with their
+    # own shell options (e.g. `set -euo pipefail`) are not changed.
+    return f"mkdir -p -- {quoted} || exit 1\n{shellcmd}"
 
 
 @dataclass
@@ -214,7 +243,9 @@ class Executor(RemoteExecutor):
 
         outputs, localizations = self._build_outputs(job)
         image = self._task_image_for_job(job, native)
-        command = self._command_for_job(job, native)
+        command = self._command_for_job(
+            job, native, output_paths=[output.path for output in outputs]
+        )
 
         tags = {
             "conquest_run_id": self.run_id,
@@ -268,9 +299,14 @@ class Executor(RemoteExecutor):
             return job.container_img_url
         return self.task_image
 
-    def _command_for_job(self, job: JobExecutorInterface, native: bool) -> list[str]:
+    def _command_for_job(
+        self,
+        job: JobExecutorInterface,
+        native: bool,
+        output_paths: Iterable[str] = (),
+    ) -> list[str]:
         if native:
-            return ["/bin/bash", "-c", job.shellcmd]
+            return ["/bin/bash", "-c", native_shell_command(job.shellcmd, output_paths)]
         return ["/bin/bash", "-c", self._compat_job_exec(job)]
 
     def _compat_job_exec(self, job: JobExecutorInterface) -> str:

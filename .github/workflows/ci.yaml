@@ -39,3 +39,21 @@ jobs:
 
       - name: go test
         run: go test -race -count=1 ./...
+
+  python-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Same Python as the Snakemake runner image (docker/smk-runner).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the Snakemake executor plugin
+        run: pip install ./python pytest
+
+      - name: pytest
+        run: pytest -q python/tests
