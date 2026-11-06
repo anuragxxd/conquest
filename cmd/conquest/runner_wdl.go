@@ -28,6 +28,7 @@ func runRunnerWDL(log *slog.Logger) error {
 	s3Bucket := fs.String("s3-bucket", "", "S3 bucket name")
 	s3Region := fs.String("s3-region", "us-east-1", "S3 region")
 	allowExternalImports := fs.Bool("allow-external-imports", false, "Allow non-repository WDL imports")
+	taskWorkDirPrefix := fs.String("task-work-dir-prefix", "", "S3 URI under which tasks exchange files (emptydir runs); empty: shared workspace")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
@@ -59,6 +60,7 @@ func runRunnerWDL(log *slog.Logger) error {
 		S3Endpoint:           *s3Endpoint,
 		S3Bucket:             *s3Bucket,
 		S3Region:             *s3Region,
+		TaskWorkDirPrefix:    *taskWorkDirPrefix,
 		AllowExternalImports: *allowExternalImports,
 	}
 

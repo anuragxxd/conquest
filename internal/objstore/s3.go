@@ -3,6 +3,8 @@ package objstore
 import (
 	"context"
 	"io"
+	"net/url"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -80,4 +82,12 @@ func (c *S3Client) ListPrefix(ctx context.Context, bucket, prefix string) ([]str
 		keys = append(keys, obj.Key)
 	}
 	return keys, nil
+}
+
+// Presign returns a URL that performs method (GET, HEAD or PUT) on the
+// object without credentials until it expires. The URL names the endpoint
+// this client was created with, so create the client with the address the
+// URL's users can reach.
+func (c *S3Client) Presign(ctx context.Context, method, bucket, key string, expires time.Duration) (*url.URL, error) {
+	return c.mc.Presign(ctx, method, bucket, key, expires, nil)
 }

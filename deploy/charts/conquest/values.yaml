@@ -172,6 +172,20 @@ global:
   # Add entries here only when mirroring into a private registry.
   imagePullSecrets: []
 
+# Storage gateway: remote TES endpoints read inputs and write outputs through
+# capability URLs on this server (307 redirects to presigned S3 URLs), so they
+# need no S3 credentials. Used by endpoints with s3_url_style: gateway.
+storageGateway:
+  enabled: false
+  # Base URL of this server as remote endpoints reach it. Use https outside
+  # trusted networks: the URLs are bearer capabilities.
+  publicURL: ""
+  # S3 endpoint as remote endpoints reach it, for the presigned URLs.
+  # Default: conquest.env.CONQUEST_S3_ENDPOINT.
+  s3PublicEndpoint: ""
+  # Existing Secret with key "secret" (>= 32 bytes); generated if empty.
+  existingSecret: ""
+
 # Federation: route tasks to remote GA4GH TES endpoints (Funnel, TESK,
 # Poiesis, proTES, another Conquest). Off by default: every task runs on
 # this cluster. See internal/backend/routing for the schema.
