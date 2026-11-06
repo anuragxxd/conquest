@@ -185,3 +185,58 @@ def test_inputs_resolve_back_to_their_host_paths(container, tmp_path):
 
     assert container_path == "/mnt/miniwdl_task_container/in/0/a.txt"
     assert container.host_path(container_path) == str(tmp_path / "in" / "a.txt")
+
+
+def run_dereference(directory):
+    """Run the plugin's link dereferencing on a directory with bash."""
+    import subprocess
+
+    subprocess.run(
+        ["bash", "-c", f"{plugin.DEREFERENCE_LINKS} {plugin._shell_quote(str(directory))}"],
+        check=True,
+    )
+
+
+def test_links_in_the_work_dir_become_copies(tmp_path):
+    inputs, work = tmp_path / "in", tmp_path / "work"
+    write(str(inputs / "ref.fa"), ">ref\n")
+    write(str(inputs / "refdir" / "a.txt"), "a")
+    write(str(work / "real.txt"), "real")
+    (work / "sub").mkdir()
+    os.symlink(inputs / "ref.fa", work / "ref.fa")
+    os.symlink(inputs / "refdir", work / "sub" / "refdir")
+    os.symlink("real.txt", work / "same.txt")
+    os.symlink(tmp_path / "missing", work / "dangling")
+
+    run_dereference(work)
+
+    links = [p for p in work.rglob("*") if p.is_symlink()]
+    assert links == []
+    assert (work / "ref.fa").read_text() == ">ref\n"
+    assert (work / "sub" / "refdir" / "a.txt").read_text() == "a"
+    assert (work / "same.txt").read_text() == "real"
+    assert not os.path.lexists(work / "dangling")
+    # the targets are untouched
+    assert (inputs / "ref.fa").read_text() == ">ref\n"
+
+
+def test_s3_task_keeps_the_command_exit_code_and_dereferences(container, tmp_path):
+    import subprocess
+
+    command = "ln -s /nonexistent dangling; echo out > real.txt; exit 3"
+    task = container._build_s3_task(LOG, command)
+    script = task.executors[0].command[2]
+    # run the executor's script with the container directory moved into
+    # tmp_path; the TES server stages the command there as an input
+    root = tmp_path / "c"
+    (root / "in").mkdir(parents=True)
+    (root / "in" / "command").write_text(command)
+    local = script.replace(container.container_dir, str(root))
+
+    rc = subprocess.run(["bash", "-c", local]).returncode
+
+    assert rc == 3
+    work = root / "work"
+    assert (work / "real.txt").read_text() == "out\n"
+    assert not os.path.lexists(work / "dangling")
+    assert (root / "streams" / "stdout.txt").exists()
