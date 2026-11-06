@@ -106,7 +106,9 @@ directives (`cpus`, `memory`, `disk`); WDL uses task runtime attributes such as
 resource fields, and Conquest maps them to Kubernetes resource requests/limits.
 
 A task policy layer fills in defaults when omitted (1 CPU, 2 GB RAM, 8 GB
-disk) and enforces platform-level floors and ceilings. See
+disk) and enforces platform-level floors and ceilings. Task memory is floored
+at 128 MiB by default (`CONQUEST_TASK_MIN_RAM_GB`): workflows compute memory
+from input sizes, and a container can't start under a few MiB. See
 `CONQUEST_TASK_DEFAULT_*`, `CONQUEST_TASK_MIN_*`, and `CONQUEST_TASK_MAX_*`
 in [`internal/config/config.go`](internal/config/config.go).
 
