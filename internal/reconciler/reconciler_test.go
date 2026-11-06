@@ -46,14 +46,39 @@ func TestReconcileTask_PersistsExitCodeBeforeTerminalState(t *testing.T) {
 	}
 }
 
+func TestReconcileTask_ReleasesResourcesOfFailedTasks(t *testing.T) {
+	for phase, wantCancel := range map[domain.State]bool{
+		domain.StateSystemError:   true,
+		domain.StateExecutorError: false,
+		domain.StateComplete:      false,
+		domain.StateRunning:       false,
+	} {
+		be := &stubBackend{status: &backend.BackendStatus{Phase: phase, Reason: "ImagePullBackOff"}}
+		r := New(&stubTaskStore{}, &stubEventStore{}, be, DefaultConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		task := domain.NewTask("run-1")
+		task.TESTaskID = task.TaskID
+		task.State = domain.StateInitializing
+
+		r.reconcileTask(context.Background(), task)
+
+		if got := len(be.cancelled) == 1; got != wantCancel {
+			t.Errorf("%s: cancelled = %v, want cancel %v", phase, be.cancelled, wantCancel)
+		}
+	}
+}
+
 type stubBackend struct {
-	status *backend.BackendStatus
-	err    error
+	status    *backend.BackendStatus
+	err       error
+	cancelled []string
 }
 
 func (s *stubBackend) Submit(context.Context, *domain.Task) error { return nil }
 
-func (s *stubBackend) Cancel(context.Context, *domain.Task) error { return nil }
+func (s *stubBackend) Cancel(_ context.Context, task *domain.Task) error {
+	s.cancelled = append(s.cancelled, task.TaskID)
+	return nil
+}
 
 func (s *stubBackend) Refresh(context.Context, *domain.Task) (*backend.BackendStatus, error) {
 	return s.status, s.err
