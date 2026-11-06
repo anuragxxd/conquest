@@ -164,6 +164,19 @@ func (r *Reconciler) reconcileTask(ctx context.Context, task *domain.Task) {
 		"pod", status.PodName,
 	)
 
+	// A SYSTEM_ERROR can be declared while the backend still holds the
+	// task's resources, e.g. a pod stuck in ImagePullBackOff keeps retrying
+	// and keeps its CPU and memory requests. Release them; Cancel is
+	// idempotent and a no-op for resources that are already gone.
+	if status.Phase == domain.StateSystemError {
+		if err := r.backend.Cancel(ctx, task); err != nil {
+			r.log.Warn("failed to release resources of failed task",
+				"task_id", task.TESTaskID,
+				"err", err,
+			)
+		}
+	}
+
 	// Update backend state blob.
 	if status.PodName != "" {
 		bs, _ := json.Marshal(map[string]any{
