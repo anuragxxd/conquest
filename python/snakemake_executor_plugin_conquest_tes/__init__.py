@@ -54,6 +54,26 @@ common_settings = CommonSettings(
 )
 
 
+#: Task tag through which a rule asks Conquest for TES backends (endpoint
+#: names or "local", in order, comma-separated). Conquest only honours it
+#: within what its routing configuration allows.
+BACKEND_HINT_TAG = "conquest.tes_backend"
+
+#: Rule resource that sets BACKEND_HINT_TAG, e.g.
+#: ``resources: tes_backend="funnel-a,local"`` or
+#: ``--set-resources align:tes_backend=local``.
+BACKEND_HINT_RESOURCE = "tes_backend"
+
+
+def backend_hint(job) -> Optional[str]:
+    """Return the job's ``tes_backend`` resource, if it names backends."""
+    value = job.resources.get(BACKEND_HINT_RESOURCE)
+    if not isinstance(value, str):
+        return None
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    return ",".join(names) or None
+
+
 def native_shell_command(shellcmd: str, output_paths: Iterable[str]) -> str:
     """Prefix a rule's shell command with creating its outputs' parent dirs.
 
@@ -257,6 +277,10 @@ class Executor(RemoteExecutor):
         # the shared PVC subtree instead of an isolated per-task subpath.
         if self.shared_workspace:
             tags["conquest_workspace_scope"] = "shared"
+
+        hint = backend_hint(job)
+        if hint:
+            tags[BACKEND_HINT_TAG] = hint
 
         task = tes.Task(
             name=job.format_wildcards(self.jobname),

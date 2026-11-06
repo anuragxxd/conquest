@@ -131,3 +131,24 @@ def test_build_task_creates_dirs_of_outputs_and_logs(tmp_path, monkeypatch):
         "mkdir -p -- /work/workflow/Bonjour /work/workflow/logs || exit 1\n"
         + FakeJob.shellcmd
     )
+
+
+def test_backend_hint_resource_becomes_a_task_tag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    job = FakeJob()
+    job.resources = {"tes_backend": " funnel-a , local ,"}
+
+    task, _ = emptydir_executor(tmp_path)._build_task(job)
+
+    assert task.tags["conquest.tes_backend"] == "funnel-a,local"
+
+
+def test_jobs_without_a_backend_hint_get_no_tag(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for resources in ({}, {"tes_backend": 3}, {"tes_backend": " , "}):
+        job = FakeJob()
+        job.resources = resources
+
+        task, _ = emptydir_executor(tmp_path)._build_task(job)
+
+        assert "conquest.tes_backend" not in task.tags
