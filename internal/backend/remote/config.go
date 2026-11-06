@@ -21,6 +21,10 @@ const (
 	// S3StyleEndpoint sends s3://<s3-host[:port]>/<bucket>/<key>, which
 	// Funnel's GenericS3 storage requires for non-AWS services.
 	S3StyleEndpoint = "endpoint"
+	// S3StyleGateway sends Conquest storage gateway URLs (http(s)://), so
+	// the endpoint needs no S3 credentials and no access to S3 beyond the
+	// presigned URLs the gateway redirects to.
+	S3StyleGateway = "gateway"
 )
 
 // TES versions an endpoint can implement.
@@ -156,13 +160,13 @@ func (c *EndpointConfig) Validate() error {
 	switch c.S3URLStyle {
 	case "":
 		c.S3URLStyle = S3StyleBucket
-	case S3StyleBucket:
+	case S3StyleBucket, S3StyleGateway:
 	case S3StyleEndpoint:
 		if c.S3Host == "" || strings.ContainsAny(c.S3Host, "/@") {
 			return fmt.Errorf("endpoint %s: s3_url_style %q needs s3_host as host[:port]", c.Name, S3StyleEndpoint)
 		}
 	default:
-		return fmt.Errorf("endpoint %s: s3_url_style %q must be %q or %q", c.Name, c.S3URLStyle, S3StyleBucket, S3StyleEndpoint)
+		return fmt.Errorf("endpoint %s: s3_url_style %q must be %q, %q or %q", c.Name, c.S3URLStyle, S3StyleBucket, S3StyleEndpoint, S3StyleGateway)
 	}
 	if err := c.Auth.validate(); err != nil {
 		return fmt.Errorf("endpoint %s: %w", c.Name, err)

@@ -121,7 +121,7 @@ Controls how the runner pod and task pods share (or don't share) a filesystem.
 | `objectfs`    | S3 via FUSE          | Yes               | Run workspace is an S3 prefix mounted into every pod. No block storage needed. See below.                  |
 | `pvc` + `RWX` | PVC (ReadWriteMany)  | Yes               | Requires NFS or a similar StorageClass.                                                                   |
 | `pvc` + `RWO` | PVC (ReadWriteOnce)  | Yes               | Good fallback when NFS isn't available. Co-locates tasks on the same node as the runner via pod affinity. |
-| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Fully compatible with Nextflow and simple Snakemake runs. Good fallback when the cluster has no persistent storage provisioner. |
+| `emptydir`    | Kubernetes emptyDir  | No                | Each task stages inputs from S3 and uploads outputs back to S3 independently. Works for Nextflow, Snakemake 8+ and WDL (each WDL task's inputs, command and work directory go through S3, and the work directory is downloaded back to the runner for miniwdl). The mode for federated runs. |
 
 ```bash
 CONQUEST_WORKSPACE_MODE=objectfs     # "emptydir", "pvc", or "objectfs"
@@ -299,8 +299,9 @@ routing:
 the TES FULL view: `logs[0].metadata["conquest.backend"]` and a `route:`
 system log line):
 
-1. **Local only**: tasks of shared-workspace runs (`pvc`, `objectfs`, all
-   WDL) and tasks with inputs or outputs outside Conquest's bucket.
+1. **Local only**: tasks of shared-workspace runs (`pvc`, `objectfs`) and
+   tasks with inputs or outputs outside Conquest's bucket. WDL runs in
+   `emptydir` mode stage through S3 (see Workspace Modes) and can go remote.
 2. **Rule**: the first matching rule gives the ordered backends.
 3. **Hint**: tag `conquest.tes_backend` (`"funnel-a,local"`) on the task or
    the WES run narrows and reorders the rule's backends, or, without a rule,
@@ -323,9 +324,30 @@ TES servers' glob implementations lack. For Nextflow tasks, TES 1.1 endpoints
 are also asked for every `.command.*` file (e.g. `.command.env`, which
 nf-ga4gh doesn't declare), as Conquest's own filer uploads them.
 
+**Storage gateway: no S3 credentials at remote sites.** With
+`s3_url_style: gateway` (chart: `storageGateway.*`), a forwarded task's S3
+URLs become capability URLs on Conquest itself:
+
+```
+<storageGateway.publicURL>/storage/v1/t/<task ID>/<HMAC>/<bucket>/<key>
+```
+
+A request to one is answered with `307` to an S3 URL presigned at that
+moment for that object and method, so URLs can't expire while a task waits
+in a remote queue. What a task may touch comes from its stored request:
+GET/HEAD for its inputs, PUT for its outputs (including any file below
+wildcard and directory outputs). URLs stop working shortly after the task
+ends. Directory inputs are expanded into one input per object, since HTTP
+can't list. Remote sites then need only to reach the gateway and the
+presigned S3 endpoint (`storageGateway.s3PublicEndpoint`), and must follow
+`307` on PUT: Funnel (since #1472), tesk-core (since #61) and Poiesis (since
+#103) do. The gateway works over plain HTTP, but the URLs are bearer
+capabilities: use HTTPS outside trusted networks.
+
 **Requirements on remote sites** (none of these can be expressed in TES):
 
-- Read and write access to Conquest's bucket, configured on the remote side.
+- Access to Conquest's objects: through the storage gateway, or else read and
+  write access to Conquest's bucket configured on the remote side.
 - Executor images pullable from there (Conquest's Snakemake task image too).
 - Files staged so the executor's image user can write next to them:
   Conquest's Snakemake task image runs as UID 1000.

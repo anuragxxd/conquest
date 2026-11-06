@@ -39,9 +39,10 @@ func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout s
 	if err := wdlengine.ValidateWorkflowVersion(req.WorkflowTypeVersion); err != nil {
 		return nil, &ValidationError{Field: "workflow_type_version", Msg: err.Error()}
 	}
-	if a.cfg.WorkspaceMode != "pvc" && a.cfg.WorkspaceMode != "objectfs" {
-		return nil, &ValidationError{Field: "workflow_type", Msg: "WDL requires shared workspace mode (CONQUEST_WORKSPACE_MODE=pvc or objectfs)"}
-	}
+	// Shared workspaces (pvc, objectfs) let tasks read and write the runner's
+	// files in place. Otherwise (emptydir) tasks exchange files through S3,
+	// which also lets them run on remote TES endpoints.
+	stageThroughS3 := a.cfg.WorkspaceMode != "pvc" && a.cfg.WorkspaceMode != "objectfs"
 
 	var wdlParams source.WDLEngineParams
 	if len(req.WorkflowEngineParameters) > 0 {
@@ -131,6 +132,9 @@ func (a *WDLRunAdapter) PrepareRun(runID string, req SubmissionRequest, layout s
 		"--s3-endpoint", a.cfg.S3Endpoint,
 		"--s3-bucket", a.cfg.S3Bucket,
 		"--s3-region", a.cfg.S3Region,
+	}
+	if stageThroughS3 {
+		args = append(args, "--task-work-dir-prefix", layout.WDLWorkDirURI(runID))
 	}
 	if a.cfg.AllowExternalImports {
 		args = append(args, "--allow-external-imports")

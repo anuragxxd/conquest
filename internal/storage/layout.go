@@ -117,6 +117,17 @@ func (l Layout) SnakemakeWorkDirURI(runID string) string {
 	return l.uri(l.SnakemakeWorkDir(runID))
 }
 
+// WDLWorkDir returns the key prefix under which WDL tasks of emptydir runs
+// exchange files: each task call's inputs, command and work directory.
+func (l Layout) WDLWorkDir(runID string) string {
+	return l.runPath(runID, "work/wdl/")
+}
+
+// WDLWorkDirURI returns the full S3 URI for the WDL work dir.
+func (l Layout) WDLWorkDirURI(runID string) string {
+	return l.uri(l.WDLWorkDir(runID))
+}
+
 func (l Layout) SnakemakeWorkspaceDir(runID string) string {
 	return l.runPath(runID, "work/snakemake/workspace/")
 }
