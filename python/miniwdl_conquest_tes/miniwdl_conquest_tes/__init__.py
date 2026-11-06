@@ -42,8 +42,11 @@ from typing import Any, Callable, Dict, Optional
 import tes
 
 from WDL.runtime import config
+from WDL.Error import InputError
 from WDL.runtime.error import Interrupted, Terminated
 from WDL.runtime.task_container import TaskContainer
+
+from . import s3stage
 
 __all__ = ["ConquestTESContainer"]
 
@@ -106,13 +109,26 @@ def _install_permission_tolerant_chmod() -> None:
 class ConquestTESContainer(TaskContainer):
     """
     TaskContainer backend that dispatches each WDL task as a GA4GH TES task
-    to the Conquest internal TES API.  Input/output staging is handled via a
-    shared PVC — no S3 transfers happen inside this plugin.
+    to the Conquest internal TES API.
+
+    Two staging modes:
+
+    - shared workspace (default): the runner and task pods mount the same
+      volume, paths are identical on both sides, and the TES task declares
+      no inputs or outputs.
+    - S3 (``CONQUEST_WDL_TASK_STAGING=s3``, runs without a shared
+      workspace): the task declares its inputs, command, work directory and
+      streams as TES inputs and outputs under ``CONQUEST_WDL_WORK_URI``, and
+      the work directory is downloaded back afterwards. Such tasks need
+      nothing but S3, so Conquest can also run them on remote TES endpoints.
     """
 
     # Class-level state set once by global_init().
     _resource_limits: Dict[str, int] = {}
     _tes_url: str = ""
+    _s3_work_uri: str = ""
+    _s3_client: Any = None
+    _s3_index: Optional[s3stage.Index] = None
 
     # ------------------------------------------------------------------
     # Class methods
@@ -137,6 +153,17 @@ class ConquestTESContainer(TaskContainer):
         mem_limit = int(os.environ.get("CONQUEST_TES_MAX_MEM_GB", "1024")) * (1024**3)
         cls._resource_limits = {"cpu": cpu_limit, "mem_bytes": mem_limit}
 
+        staging = os.environ.get("CONQUEST_WDL_TASK_STAGING", "").strip()
+        if staging == "s3":
+            work_uri = os.environ.get("CONQUEST_WDL_WORK_URI", "").strip()
+            if not work_uri.startswith("s3://"):
+                raise RuntimeError("CONQUEST_WDL_WORK_URI must be an s3:// URI for S3 staging")
+            cls._s3_work_uri = work_uri.rstrip("/")
+            cls._s3_client = s3stage.make_client()
+            cls._s3_index = s3stage.Index()
+        elif staging:
+            raise RuntimeError(f"unknown CONQUEST_WDL_TASK_STAGING {staging!r}")
+
         logger.info(
             "ConquestTES backend initialized "
             "(endpoint=%s, cpu_limit=%d, mem_gb_limit=%d)",
@@ -159,10 +186,13 @@ class ConquestTESContainer(TaskContainer):
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
         super().__init__(cfg, run_id, host_dir)
-        # Shared PVC means identical paths on both the runner pod and the task
-        # pod.  Setting container_dir = host_dir prevents any path
-        # virtualisation, matching the approach used by miniwdl-aws with EFS.
-        self.container_dir = self.host_dir
+        if not self.s3_staging:
+            # Shared PVC means identical paths on both the runner pod and the
+            # task pod.  Setting container_dir = host_dir prevents any path
+            # virtualisation, matching the approach used by miniwdl-aws with
+            # EFS.  With S3 staging, miniwdl's own container_dir is kept: the
+            # task sees its files where any miniwdl container would.
+            self.container_dir = self.host_dir
 
         self._tes_client: Optional[tes.HTTPClient] = None
         self._poll_interval = float(
@@ -186,13 +216,60 @@ class ConquestTESContainer(TaskContainer):
     # Input handling
     # ------------------------------------------------------------------
 
+    @property
+    def s3_staging(self) -> bool:
+        return bool(self._s3_work_uri)
+
+    def add_paths(self, host_paths) -> None:
+        """Map input paths into the container.
+
+        With S3 staging, inputs go under ``<container_dir>/in/`` rather than
+        miniwdl's ``work/_miniwdl_inputs/``. The work directory is a TES
+        DIRECTORY output, and servers mount inputs and outputs separately:
+        Funnel merges all input mounts into their common ancestor and fails
+        if that overlaps an output mount. So inputs and the command live in
+        in/, and outputs in work/ and streams/, which are disjoint.
+        Otherwise this is miniwdl's own add_paths, with the same collision
+        handling.
+        """
+        if not self.s3_staging:
+            super().add_paths(host_paths)
+            return
+        assert not self._running
+        by_dir: Dict[str, set] = {}
+        for host_path in host_paths:
+            stripped = host_path.rstrip("/")
+            if host_path not in self.input_path_map and stripped not in self.input_path_map:
+                if not os.path.exists(stripped):
+                    raise InputError("input path not found: " + host_path)
+                by_dir.setdefault(os.path.dirname(stripped), set()).add(host_path)
+        base = os.path.join(self.container_dir, "in")
+        for paths in by_dir.values():
+            subd = "0"
+            for host_path in paths:
+                container_path = os.path.join(base, subd, os.path.basename(host_path.rstrip("/")))
+                if host_path.endswith("/"):
+                    container_path += "/"
+                if container_path in self.input_path_map_rev:
+                    subd = str(len(self.input_path_map) + 1)
+            for host_path in paths:
+                container_path = os.path.join(base, subd, os.path.basename(host_path.rstrip("/")))
+                if host_path.endswith("/"):
+                    container_path += "/"
+                assert container_path not in self.input_path_map_rev
+                self.input_path_map[host_path] = container_path
+                self.input_path_map_rev[container_path] = host_path
+
     def copy_input_files(self, logger: logging.Logger) -> None:
         """Copy inputs into the work directory on the shared PVC.
 
         This is required because the TES task pod accesses files through the
         PVC, not via Docker bind mounts.  The base-class implementation copies
         from original host paths into ``host_dir/work/_miniwdl_inputs/``.
+        With S3 staging, inputs are TES inputs instead.
         """
+        if self.s3_staging:
+            return
         super().copy_input_files(logger)
 
     # ------------------------------------------------------------------
@@ -215,13 +292,25 @@ class ConquestTESContainer(TaskContainer):
             with open(stream_path, "a", encoding="utf-8"):
                 pass
 
-        task = self._build_tes_task(command)
+        if self.s3_staging:
+            task = self._build_s3_task(logger, command)
+        else:
+            task = self._build_tes_task(command)
 
         logger.info("submitting TES task (image=%s)", task.executors[0].image)
         task_id: str = self.tes_client.create_task(task)
         logger.info("TES task submitted (id=%s)", task_id)
 
-        return self._poll_until_terminal(logger, terminating, task_id)
+        if not self.s3_staging:
+            return self._poll_until_terminal(logger, terminating, task_id)
+        try:
+            exit_code = self._poll_until_terminal(logger, terminating, task_id)
+        except Exception:
+            # keep what the task left (e.g. stderr) for the error report
+            self._collect_s3_outputs(logger, best_effort=True)
+            raise
+        self._collect_s3_outputs(logger, best_effort=exit_code != 0)
+        return exit_code
 
     # ------------------------------------------------------------------
     # TES task construction
@@ -268,6 +357,80 @@ class ConquestTESContainer(TaskContainer):
             resources=resources,
             tags=tags,
         )
+
+    def _s3_attempt_uri(self) -> str:
+        """S3 prefix of this task attempt: the run's WDL work URI, the task
+        directory's path (unique per call) and the attempt number."""
+        return s3stage.join(
+            self._s3_work_uri,
+            self.host_dir.strip("/"),
+            f"attempt-{max(self.try_counter, 1)}",
+        )
+
+    def _build_s3_task(self, logger: logging.Logger, command: str) -> tes.Task:
+        """The TES task of an attempt with S3 staging."""
+        base = self._s3_attempt_uri()
+        cdir = self.container_dir
+        inputs = []
+        for n, (host_path, container_path) in enumerate(sorted(self.input_path_map.items())):
+            is_dir = host_path.endswith("/")
+            name = os.path.basename(host_path.rstrip("/"))
+            url = s3stage.upload_input(
+                self._s3_client, self._s3_index, host_path,
+                s3stage.join(base, "inputs", str(n), name) + ("/" if is_dir else ""),
+            )
+            inputs.append(tes.Input(
+                url=url.rstrip("/") if is_dir else url,
+                path=container_path.rstrip("/"),
+                type="DIRECTORY" if is_dir else "FILE",
+            ))
+        logger.info("staged %d inputs through S3 under %s", len(inputs), base)
+        command_path = os.path.join(cdir, "in", "command")
+        inputs.append(tes.Input(path=command_path, content=command, type="FILE"))
+
+        work = os.path.join(cdir, "work")
+        streams = os.path.join(cdir, "streams")
+        shell = self.cfg.get("task_runtime", "command_shell")
+        exec_command = (
+            f"mkdir -p {_shell_quote(work)} {_shell_quote(streams)} && cd {_shell_quote(work)} && "
+            f"{shell} {_shell_quote(command_path)} "
+            f"> {_shell_quote(os.path.join(streams, 'stdout.txt'))} "
+            f"2> {_shell_quote(os.path.join(streams, 'stderr.txt'))}"
+        )
+        env = dict(self.runtime_values.get("env", {}))
+        executor = tes.Executor(
+            image=self.runtime_values.get("docker", "ubuntu:22.04"),
+            command=["bash", "-c", exec_command],
+            workdir=work,
+            env=env if env else None,
+        )
+        outputs = [
+            tes.Output(url=s3stage.join(base, "work"), path=work, type="DIRECTORY"),
+            tes.Output(url=s3stage.join(base, "stdout.txt"), path=os.path.join(streams, "stdout.txt"), type="FILE"),
+            tes.Output(url=s3stage.join(base, "stderr.txt"), path=os.path.join(streams, "stderr.txt"), type="FILE"),
+        ]
+        return tes.Task(
+            name=self.run_id,
+            executors=[executor],
+            inputs=inputs,
+            outputs=outputs,
+            resources=self._build_resources(),
+        )
+
+    def _collect_s3_outputs(self, logger: logging.Logger, best_effort: bool) -> None:
+        """Download the attempt's work directory and streams to the runner."""
+        base = self._s3_attempt_uri()
+        try:
+            count = s3stage.download_work_dir(
+                self._s3_client, self._s3_index, s3stage.join(base, "work"), self.host_work_dir()
+            )
+            for name, dest in (("stdout.txt", self.host_stdout_txt()), ("stderr.txt", self.host_stderr_txt())):
+                s3stage.download_optional(self._s3_client, s3stage.join(base, name), dest)
+            logger.info("collected %d files of the task work directory from %s", count, base)
+        except Exception as exc:
+            if not best_effort:
+                raise
+            logger.warning("could not collect the task's files from %s: %s", base, exc)
 
     def _build_resources(self) -> Optional[tes.Resources]:
         cpu = self.runtime_values.get("cpu")

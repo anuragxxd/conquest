@@ -33,13 +33,17 @@ type Backend struct {
 var _ backend.TaskBackend = (*Backend)(nil)
 
 // New creates a routing backend over the local backend and one remote
-// backend per configured endpoint. bucket is Conquest's S3 bucket.
-func New(cfg *Config, local backend.TaskBackend, runs RunLookup, bucket string, log *slog.Logger) *Backend {
+// backend per configured endpoint. bucket is Conquest's S3 bucket; storage
+// (the storage gateway) may be nil if no endpoint uses it.
+func New(cfg *Config, local backend.TaskBackend, runs RunLookup, bucket string, storage remote.Storage, log *slog.Logger) (*Backend, error) {
 	remotes := map[string]backend.TaskBackend{}
 	for _, ep := range cfg.Endpoints {
-		remotes[ep.Name] = remote.New(ep, cfg.GatewayID, log)
+		if ep.S3URLStyle == remote.S3StyleGateway && storage == nil {
+			return nil, fmt.Errorf("endpoint %s uses s3_url_style %q, but the storage gateway is not enabled", ep.Name, remote.S3StyleGateway)
+		}
+		remotes[ep.Name] = remote.New(ep, cfg.GatewayID, storage, log)
 	}
-	return newBackend(cfg, local, remotes, runs, bucket, log)
+	return newBackend(cfg, local, remotes, runs, bucket, log), nil
 }
 
 func newBackend(cfg *Config, local backend.TaskBackend, remotes map[string]backend.TaskBackend,

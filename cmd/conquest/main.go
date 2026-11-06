@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	// The filer runs inside the user's executor image, which may ship no CA
 	// bundle at all (quay.io/nextflow/bash doesn't). Embedded roots are used
@@ -25,6 +26,7 @@ import (
 	"github.com/anuragxxd/conquest/internal/api/wes"
 	"github.com/anuragxxd/conquest/internal/backend"
 	k8sbackend "github.com/anuragxxd/conquest/internal/backend/k8s"
+	"github.com/anuragxxd/conquest/internal/backend/remote"
 	"github.com/anuragxxd/conquest/internal/backend/routing"
 	"github.com/anuragxxd/conquest/internal/config"
 	"github.com/anuragxxd/conquest/internal/controller"
@@ -33,6 +35,7 @@ import (
 	"github.com/anuragxxd/conquest/internal/reconciler"
 	"github.com/anuragxxd/conquest/internal/repository/pg"
 	"github.com/anuragxxd/conquest/internal/storage"
+	"github.com/anuragxxd/conquest/internal/storagegw"
 	"github.com/anuragxxd/conquest/internal/taskpolicy"
 )
 
@@ -242,6 +245,7 @@ func run(log *slog.Logger) error {
 	// Task backend: the local Kubernetes backend, wrapped in the routing
 	// backend when remote TES endpoints are configured.
 	var tasks backend.TaskBackend
+	var gateway *storagegw.Gateway
 	gatewayID := ""
 	if taskBackend != nil {
 		tasks = taskBackend
@@ -250,7 +254,15 @@ func run(log *slog.Logger) error {
 			if err != nil {
 				return err
 			}
-			tasks = routing.New(fedCfg, taskBackend, runStore, cfg.S3Bucket, log)
+			gw, storage, err := newStorageGateway(cfg, taskStore, log)
+			if err != nil {
+				return err
+			}
+			gateway = gw
+			tasks, err = routing.New(fedCfg, taskBackend, runStore, cfg.S3Bucket, storage, log)
+			if err != nil {
+				return err
+			}
 			gatewayID = fedCfg.GatewayID
 			names := make([]string, len(fedCfg.Endpoints))
 			for i, ep := range fedCfg.Endpoints {
@@ -297,7 +309,11 @@ func run(log *slog.Logger) error {
 	})
 
 	// Router.
-	router := api.NewRouter(wesHandler, tesHandler)
+	var extraRoutes []func(chi.Router)
+	if gateway != nil {
+		extraRoutes = append(extraRoutes, gateway.Routes)
+	}
+	router := api.NewRouter(wesHandler, tesHandler, extraRoutes...)
 
 	// Start reconcilers if backends are available.
 	appCtx, appCancel := context.WithCancel(context.Background())
@@ -380,4 +396,58 @@ func newServerArtifactStore(cfg *config.Config) (objstore.Client, error) {
 		Region:    cfg.S3Region,
 		UseSSL:    useSSL,
 	})
+}
+
+// gatewayStorage gives remote backends gateway URLs and S3 listings.
+type gatewayStorage struct {
+	*storagegw.Gateway
+	lister *objstore.S3Client
+}
+
+func (g gatewayStorage) ListPrefix(ctx context.Context, bucket, prefix string) ([]string, error) {
+	return g.lister.ListPrefix(ctx, bucket, prefix)
+}
+
+// newStorageGateway creates the storage gateway if CONQUEST_STORAGE_GATEWAY_URL
+// is set; otherwise it returns nils.
+func newStorageGateway(cfg *config.Config, tasks storagegw.TaskLookup, log *slog.Logger) (*storagegw.Gateway, remote.Storage, error) {
+	if cfg.StorageGatewayURL == "" {
+		return nil, nil, nil
+	}
+	accessKey := strings.TrimSpace(os.Getenv("AWS_ACCESS_KEY_ID"))
+	secretKey := strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY"))
+	if accessKey == "" || secretKey == "" || cfg.S3Endpoint == "" {
+		return nil, nil, fmt.Errorf("storage gateway needs CONQUEST_S3_ENDPOINT, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY")
+	}
+	s3Client := func(endpoint string) (*objstore.S3Client, error) {
+		return objstore.NewS3Client(objstore.S3Config{
+			Endpoint:  strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://"),
+			AccessKey: accessKey,
+			SecretKey: secretKey,
+			Region:    cfg.S3Region,
+			UseSSL:    strings.HasPrefix(endpoint, "https://"),
+		})
+	}
+	public := cfg.S3PublicEndpoint
+	if public == "" {
+		public = cfg.S3Endpoint
+	}
+	presigner, err := s3Client(public)
+	if err != nil {
+		return nil, nil, fmt.Errorf("storage gateway presign client: %w", err)
+	}
+	lister, err := s3Client(cfg.S3Endpoint)
+	if err != nil {
+		return nil, nil, fmt.Errorf("storage gateway S3 client: %w", err)
+	}
+	gw, err := storagegw.New(storagegw.Config{
+		PublicURL: cfg.StorageGatewayURL,
+		Secret:    []byte(cfg.StorageGatewaySecret),
+		Buckets:   []string{cfg.S3Bucket},
+	}, tasks, presigner, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	log.Info("storage gateway enabled", "public_url", cfg.StorageGatewayURL, "s3_public_endpoint", public)
+	return gw, gatewayStorage{Gateway: gw, lister: lister}, nil
 }

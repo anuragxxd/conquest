@@ -83,24 +83,36 @@ func TestWDLRunAdapter_PrepareRun_DefaultVersionAndImage(t *testing.T) {
 	}
 }
 
-func TestWDLRunAdapter_PrepareRun_RejectsEmptyDirWorkspace(t *testing.T) {
-	adapter := NewWDLRunAdapter(WDLRunAdapterConfig{DefaultRunnerImage: "example.com/wdl-runner:latest", WorkspaceMode: "emptydir"})
-
-	_, err := adapter.PrepareRun("run-123", SubmissionRequest{
+func TestWDLRunAdapter_PrepareRun_StagesThroughS3WithoutSharedWorkspace(t *testing.T) {
+	req := SubmissionRequest{
 		WorkflowType:             "WDL",
 		WorkflowTypeVersion:      "1.1",
 		WorkflowURL:              "https://github.com/acme-org/my-wdl-pipelines",
 		WorkflowEngineParameters: json.RawMessage(`{"revision":"13328f73915ceda9bb794caee2f662230c5a33b6","main_workflow_path":"main.wdl"}`),
-	}, storage.Layout{Bucket: "conquest", Version: "v1"})
-	if err == nil {
-		t.Fatal("expected workspace validation error")
 	}
-	ve, ok := err.(*ValidationError)
-	if !ok {
-		t.Fatalf("expected validation error, got %T", err)
-	}
-	if ve.Field != "workflow_type" {
-		t.Fatalf("field = %q", ve.Field)
+	layout := storage.Layout{Bucket: "conquest", Version: "v1"}
+	for mode, want := range map[string]string{
+		"emptydir": layout.WDLWorkDirURI("run-123"),
+		"pvc":      "",
+		"objectfs": "",
+	} {
+		adapter := NewWDLRunAdapter(WDLRunAdapterConfig{DefaultRunnerImage: "example.com/wdl-runner:latest", WorkspaceMode: mode})
+
+		prepared, err := adapter.PrepareRun("run-123", req, layout)
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+
+		got := ""
+		args := prepared.RunnerSpec.Args
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--task-work-dir-prefix" {
+				got = args[i+1]
+			}
+		}
+		if got != want {
+			t.Errorf("%s: --task-work-dir-prefix = %q, want %q", mode, got, want)
+		}
 	}
 }
 

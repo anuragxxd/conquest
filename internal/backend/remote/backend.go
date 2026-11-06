@@ -30,6 +30,7 @@ type Backend struct {
 	client    *http.Client
 	auth      authorizer
 	gatewayID string
+	storage   Storage
 	log       *slog.Logger
 	now       func() time.Time
 
@@ -41,7 +42,8 @@ var _ backend.TaskBackend = (*Backend)(nil)
 
 // New creates a backend for an endpoint whose config has been validated.
 // gatewayID identifies this Conquest in Via headers, for loop detection.
-func New(cfg EndpointConfig, gatewayID string, log *slog.Logger) *Backend {
+// storage may be nil unless the endpoint uses S3StyleGateway.
+func New(cfg EndpointConfig, gatewayID string, storage Storage, log *slog.Logger) *Backend {
 	client := &http.Client{
 		Timeout: cfg.RequestTimeout.Duration,
 		// A redirect could send the request, with its credentials, to
@@ -53,6 +55,7 @@ func New(cfg EndpointConfig, gatewayID string, log *slog.Logger) *Backend {
 		client:    client,
 		auth:      newAuthorizer(cfg.Auth, client),
 		gatewayID: gatewayID,
+		storage:   storage,
 		log:       log.With("endpoint", cfg.Name),
 		now:       time.Now,
 		failures:  map[string]time.Time{},
@@ -85,7 +88,7 @@ func (e *SubmitError) Unwrap() error { return e.Err }
 // Submit creates the task on the endpoint and sets task.BackendRef to the
 // endpoint's task ID. Errors are *SubmitError.
 func (b *Backend) Submit(ctx context.Context, task *domain.Task) error {
-	body, err := translate(task.TaskRequestPayload, &b.cfg, task.TaskID)
+	body, err := translate(ctx, task.TaskRequestPayload, &b.cfg, task.TaskID, b.storage)
 	if err != nil {
 		return &SubmitError{Endpoint: b.cfg.Name, Refused: true, Err: err}
 	}
