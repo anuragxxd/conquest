@@ -100,19 +100,22 @@ class Executor(RemoteExecutor):
             os.environ.get("CONQUEST_SHARED_WORKSPACE") == "true"
         )
 
+        self.workflow_root = Path(
+            os.environ.get("CONQUEST_WORKFLOW_ROOT", os.getcwd())
+        ).resolve()
+
         if self.shared_workspace:
             # In shared mode, task absolute paths align with the runner
             # checkout so upstream outputs are visible at the same paths.
             self.task_root = Path("/workspace")
             self.task_workflow_root = self.task_root / "workflow"
         else:
-            # Emptydir mode — existing behavior preserved exactly.
-            self.task_root = Path("/work")
-            self.task_workflow_root = self.task_root / "workflow"
-
-        self.workflow_root = Path(
-            os.environ.get("CONQUEST_WORKFLOW_ROOT", os.getcwd())
-        ).resolve()
+            # Emptydir mode: tasks stage the workflow at the runner's own
+            # path. Snakemake writes absolute paths into shell commands
+            # (e.g. workflows that resolve inputs with os.path.abspath),
+            # and those only resolve in the task if the paths are the same.
+            self.task_root = self.workflow_root.parent
+            self.task_workflow_root = self.workflow_root
         self.workflow_workdir = Path(
             os.environ.get("CONQUEST_WORKFLOW_WORKDIR", self.workflow_root)
         ).resolve()
