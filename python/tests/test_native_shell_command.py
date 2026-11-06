@@ -131,3 +131,57 @@ def test_build_task_creates_dirs_of_outputs_and_logs(tmp_path, monkeypatch):
         "mkdir -p -- /work/workflow/Bonjour /work/workflow/logs || exit 1\n"
         + FakeJob.shellcmd
     )
+
+
+def post_init_executor(tmp_path, monkeypatch) -> Executor:
+    root = tmp_path / "workspace" / "workflow"
+    (root / "tests" / "input_files").mkdir(parents=True)
+    monkeypatch.chdir(root)
+    for name, value in {
+        "CONQUEST_WORKFLOW_ROOT": str(root),
+        "CONQUEST_RUN_ID": "run-1",
+        "CONQUEST_WORKFLOW_BUNDLE_URI": "s3://conquest/run-1/bundle/",
+        "CONQUEST_SNAKEMAKE_WORKDIR_URI": "s3://conquest/run-1/snakemake/",
+        "CONQUEST_OUTPUT_DIR_URI": "s3://conquest/run-1/outputs/",
+        "CONQUEST_TES_URL": "http://conquest/ga4gh/tes",
+        "CONQUEST_S3_REGION": "us-east-1",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("CONQUEST_SHARED_WORKSPACE", raising=False)
+    executor = object.__new__(Executor)
+    executor.workflow = SimpleNamespace(
+        executor_settings=SimpleNamespace(url=None, task_image="example/image:1"),
+        remote_execution_settings=SimpleNamespace(container_image=None),
+    )
+    executor.__post_init__()
+    return executor
+
+
+def test_emptydir_tasks_stage_the_workflow_at_the_runners_path(tmp_path, monkeypatch):
+    executor = post_init_executor(tmp_path, monkeypatch)
+    root = tmp_path / "workspace" / "workflow"
+
+    assert executor.task_workflow_root == root.resolve()
+
+
+def test_absolute_paths_in_commands_resolve_in_the_task(tmp_path, monkeypatch):
+    # Workflows such as zavolanlab/zarp resolve inputs to absolute paths,
+    # which Snakemake writes into the shell command as they are.
+    executor = post_init_executor(tmp_path, monkeypatch)
+    root = (tmp_path / "workspace" / "workflow").resolve()
+    gtf = root / "tests" / "input_files" / "annotation.gtf"
+    gtf.write_text("chr1\n")
+    executor.jobname = "snakejob.{name}.{jobid}.sh"
+    executor.s3_client = None
+    job = FakeJob()
+    job.input = [str(gtf)]
+    job.output = ["results/sorted.gtf"]
+    job.log = []
+    job.shellcmd = f"sort {gtf} > results/sorted.gtf"
+    monkeypatch.setattr(executor, "_upload_local_input", lambda job, path: "s3://conquest/run-1/x")
+
+    task, _ = executor._build_task(job)
+
+    staged = {i.path for i in task.inputs}
+    assert str(gtf) in staged
+    assert task.executors[0].workdir == str(root)
