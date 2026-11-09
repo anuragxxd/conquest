@@ -12,7 +12,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /conquest ./cmd/conquest/
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS runner
 
 ARG SNAKEMAKE_VERSION=9.17.3
 # Pinned rather than releases/latest. Snakemake is pip-installed into this
@@ -56,3 +56,13 @@ USER 1000:1000
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/conquest"]
+
+# The Snakemake *task* image (--target task): the runner image as root.
+# Remote TES servers (TESK, Funnel) stage a task's files as their own user
+# and run the executor as the image's user. As UID 1000, Snakemake can't
+# replace the directories they created (it removes an output directory
+# before it runs a rule) and fails with PermissionError. Conquest's own task
+# pods still run as CONQUEST_POD_RUN_AS_USER (1000) under the default
+# restricted profile, which sets the UID itself; the runner stays non-root.
+FROM runner AS task
+USER 0:0

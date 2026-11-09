@@ -228,6 +228,15 @@ jobs:
             build_args: ""
           - name: conquest-smk-9.17.3-runner
             file: docker/smk-runner/Dockerfile
+            target: runner
+            build_args: |
+              SNAKEMAKE_VERSION=9.17.3
+          # The same Dockerfile's last stage: the runner as root, for tasks
+          # on remote TES servers (see docker/smk-runner/Dockerfile)
+          - name: conquest-smk-9.17.3-task
+            file: docker/smk-runner/Dockerfile
+            target: task
+            cache_scope: conquest-smk-9.17.3-runner
             build_args: |
               SNAKEMAKE_VERSION=9.17.3
           - name: conquest-smk-7.32.4-runner
@@ -267,11 +276,14 @@ jobs:
         with:
           context: .
           file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
           push: true
           platforms: ${{ env.PLATFORMS }}
           build-args: ${{ matrix.build_args }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # The task image reads the runner's cache (its layers are the
+          # runner's) and writes none, so the two jobs don't race on a scope
+          cache-from: type=gha,scope=${{ matrix.cache_scope || matrix.name }}
+          cache-to: ${{ !matrix.cache_scope && format('type=gha,mode=max,scope={0}', matrix.name) || '' }}
           provenance: false
