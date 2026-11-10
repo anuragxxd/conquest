@@ -209,6 +209,13 @@ nf-core modules are built to run under. Tools that need root, or write to a
 root-owned `$HOME`, will fail. Set `CONQUEST_POD_SECURITY=baseline` to let executors run as their
 image's user (often root) on clusters that allow it.
 
+Snakemake has a separate task image, `conquest-smk-9.17.3-task`: the runner
+image (`docker/smk-runner/Dockerfile`, target `task`) as root, for tasks on
+remote TES servers, which stage task files as their own user and run executors
+as the image's user. Conquest's own task pods run as
+`CONQUEST_POD_RUN_AS_USER` under `restricted` regardless; the runner image
+stays non-root (UID 1000), like Conquest's other images.
+
 In both profiles, runner and task pods do not mount a ServiceAccount token.
 Only the server talks to the Kubernetes API, so workflow code never holds
 the Conquest ServiceAccount's rights to create and delete Jobs and PVCs.
