@@ -393,9 +393,10 @@ class ConquestTESContainer(TaskContainer):
         shell = self.cfg.get("task_runtime", "command_shell")
         exec_command = (
             f"mkdir -p {_shell_quote(work)} {_shell_quote(streams)} && cd {_shell_quote(work)} && "
-            f"{shell} {_shell_quote(command_path)} "
+            f"{{ {shell} {_shell_quote(command_path)} "
             f"> {_shell_quote(os.path.join(streams, 'stdout.txt'))} "
-            f"2> {_shell_quote(os.path.join(streams, 'stderr.txt'))}"
+            f"2> {_shell_quote(os.path.join(streams, 'stderr.txt'))}; "
+            f"rc=$?; {DEREFERENCE_LINKS} {_shell_quote(work)}; exit $rc; }}"
         )
         env = dict(self.runtime_values.get("env", {}))
         executor = tes.Executor(
@@ -533,6 +534,23 @@ class ConquestTESContainer(TaskContainer):
             logger.info("TES task cancellation requested (id=%s)", task_id)
         except Exception as exc:
             logger.warning("failed to cancel TES task (id=%s): %s", task_id, exc)
+
+
+#: Shell code, followed by a directory, that replaces the symbolic links
+#: below it with copies of what they point to, and removes dangling ones.
+#: The work directory is an output: TES servers upload it from their own
+#: container, where a link resolves differently or not at all, and some
+#: refuse outputs that contain links (TESK's filer does). Tasks often link
+#: their inputs into the work directory (e.g. `ln -s ~{ref} ref.fa`); on a
+#: shared workspace, miniwdl resolves such links itself. A link that can't
+#: be copied (e.g. a cycle) is left, and the server decides.
+DEREFERENCE_LINKS = (
+    "_deref() { find \"$1\" -depth -type l -print0 | while IFS= read -r -d '' l; do "
+    "if [ -e \"$l\" ]; then cp -RL \"$l\" \"$l.conquest-deref\" "
+    "&& rm -f \"$l\" && mv \"$l.conquest-deref\" \"$l\" "
+    "|| rm -rf \"$l.conquest-deref\"; "
+    "else rm -f \"$l\"; fi; done; }; _deref"
+)
 
 
 def _shell_quote(s: str) -> str:
