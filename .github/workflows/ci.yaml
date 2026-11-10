@@ -52,8 +52,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install the Snakemake executor plugin
-        run: pip install ./python pytest
+      - name: Install the Snakemake executor and miniwdl plugins
+        run: pip install ./python ./python/miniwdl_conquest_tes pytest
 
       - name: pytest
-        run: pytest -q python/tests
+        run: pytest -q python/tests python/miniwdl_conquest_tes/tests

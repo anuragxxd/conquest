@@ -77,7 +77,7 @@ func newTestBackend(t *testing.T, fake *fakeTES, mutate func(*EndpointConfig)) (
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	return New(cfg, "conquest-test", slog.New(slog.NewTextHandler(io.Discard, nil))), srv
+	return New(cfg, "conquest-test", nil, slog.New(slog.NewTextHandler(io.Discard, nil))), srv
 }
 
 const storedTask = `{
@@ -395,5 +395,78 @@ func TestTES10DowngradesCompatibleTasksAndRefusesOthers(t *testing.T) {
 	var se *SubmitError
 	if !errors.As(err, &se) || !se.Refused || !strings.Contains(err.Error(), "wildcard outputs") || len(fake.created) != 1 {
 		t.Fatalf("err = %v, requests = %d; want refused before sending", err, len(fake.created))
+	}
+}
+
+type fakeStorage struct{ objects map[string][]string }
+
+func (f fakeStorage) URL(taskID, bucket, key string) string {
+	return "https://gw.example.org/storage/v1/t/" + taskID + "/sig/" + bucket + "/" + key
+}
+
+func (f fakeStorage) ListPrefix(_ context.Context, bucket, prefix string) ([]string, error) {
+	return f.objects[bucket+"/"+prefix], nil
+}
+
+func TestGatewayStyle(t *testing.T) {
+	fake := &fakeTES{}
+	st := fakeStorage{objects: map[string][]string{
+		"conquest/run/bundle/": {"run/bundle/Snakefile", "run/bundle/scripts/a.py"},
+	}}
+	srv := httptest.NewServer(fake)
+	t.Cleanup(srv.Close)
+	cfg := EndpointConfig{Name: "gw", URL: srv.URL + "/ga4gh/tes/v1", S3URLStyle: S3StyleGateway}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	b := New(cfg, "c", st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	task := newTask()
+	task.TaskRequestPayload = json.RawMessage(`{
+		"executors": [{"image": "busybox", "command": ["true"]}],
+		"inputs": [
+			{"url": "s3://conquest/run/bundle", "path": "/work/workflow", "type": "DIRECTORY"},
+			{"url": "s3://conquest/run/work/.command.sh", "path": "/work/.command.sh"},
+			{"url": "https://example.org/ref.fa", "path": "/work/ref.fa"}
+		],
+		"outputs": [
+			{"url": "s3://conquest/run/work", "path": "/work/*.txt", "path_prefix": "/work"},
+			{"url": "s3://conquest/run/work/.exitcode", "path": "/work/.exitcode"}
+		]
+	}`)
+
+	if err := b.Submit(context.Background(), task); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	var paths, urls []string
+	for _, in := range fake.created[0]["inputs"].([]any) {
+		paths = append(paths, in.(map[string]any)["path"].(string))
+		urls = append(urls, in.(map[string]any)["url"].(string))
+	}
+	wantPaths := []string{"/work/workflow/Snakefile", "/work/workflow/scripts/a.py", "/work/.command.sh", "/work/ref.fa"}
+	if strings.Join(paths, ",") != strings.Join(wantPaths, ",") {
+		t.Errorf("input paths = %v", paths)
+	}
+	if urls[0] != "https://gw.example.org/storage/v1/t/t1/sig/conquest/run/bundle/Snakefile" || urls[3] != "https://example.org/ref.fa" {
+		t.Errorf("input urls = %v", urls)
+	}
+	outs := fake.created[0]["outputs"].([]any)
+	if u := outs[0].(map[string]any)["url"]; u != "https://gw.example.org/storage/v1/t/t1/sig/conquest/run/work" {
+		t.Errorf("wildcard output url = %v", u)
+	}
+	// the .command.* wildcard added for Nextflow tasks points at the gateway too
+	if u := outs[len(outs)-1].(map[string]any)["url"]; u != "https://gw.example.org/storage/v1/t/t1/sig/conquest/run/work" {
+		t.Errorf("control files url = %v", u)
+	}
+}
+
+func TestGatewayStyleWithoutGatewayIsRefused(t *testing.T) {
+	b, _ := newTestBackend(t, &fakeTES{}, func(c *EndpointConfig) { c.S3URLStyle = S3StyleGateway })
+
+	err := b.Submit(context.Background(), newTask())
+
+	var se *SubmitError
+	if !errors.As(err, &se) || !se.Refused {
+		t.Fatalf("err = %v", err)
 	}
 }

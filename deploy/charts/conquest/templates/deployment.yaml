@@ -13,6 +13,11 @@ spec:
     metadata:
       labels:
         {{- include "conquest.selectorLabels" . | nindent 8 }}
+      {{- if .Values.federation.enabled }}
+      annotations:
+        # restart the server when routing changes; it reads the file at start
+        checksum/federation: {{ include (print $.Template.BasePath "/federation-secret.yaml") . | sha256sum }}
+      {{- end }}
     spec:
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -219,6 +224,19 @@ spec:
               value: {{ .Values.conquest.podSecurity.runAsUser | quote }}
             - name: CONQUEST_POD_RUN_AS_GROUP
               value: {{ .Values.conquest.podSecurity.runAsGroup | quote }}
+            {{- if .Values.storageGateway.enabled }}
+            - name: CONQUEST_STORAGE_GATEWAY_URL
+              value: {{ required "storageGateway.publicURL is required" .Values.storageGateway.publicURL | quote }}
+            - name: CONQUEST_STORAGE_GATEWAY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storageGateway.existingSecret | default (printf "%s-storage-gateway" (include "conquest.fullname" .)) }}
+                  key: secret
+            {{- with .Values.storageGateway.s3PublicEndpoint }}
+            - name: CONQUEST_S3_PUBLIC_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.federation.enabled }}
             - name: CONQUEST_FEDERATION_CONFIG
               value: /etc/conquest/federation/config.yaml

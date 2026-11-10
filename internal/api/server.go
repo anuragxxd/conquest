@@ -14,7 +14,8 @@ import (
 
 // NewRouter creates a chi router with all WES and TES routes registered,
 // plus health, readiness, and startup probes matching the platform convention.
-func NewRouter(wesHandler *wes.Handler, tesHandler *tes.Handler) http.Handler {
+// extra mounts further routes (e.g. the storage gateway).
+func NewRouter(wesHandler *wes.Handler, tesHandler *tes.Handler, extra ...func(chi.Router)) http.Handler {
 	r := chi.NewRouter()
 
 	// Middleware.
@@ -44,6 +45,10 @@ func NewRouter(wesHandler *wes.Handler, tesHandler *tes.Handler) http.Handler {
 
 	// TES routes (internal, run-scoped — used by Nextflow runner).
 	tesHandler.InternalRoutes(r)
+
+	for _, mount := range extra {
+		mount(r)
+	}
 
 	return r
 }

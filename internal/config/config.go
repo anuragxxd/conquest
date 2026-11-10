@@ -79,6 +79,15 @@ type Config struct {
 	// routing rules (see internal/backend/routing). Empty: every task runs
 	// on the local Kubernetes backend.
 	FederationConfigFile string
+
+	// StorageGatewayURL is the storage gateway's public base URL, as remote
+	// TES endpoints reach this server. Empty: the gateway is off.
+	StorageGatewayURL string
+	// StorageGatewaySecret signs gateway URLs (at least 32 bytes).
+	StorageGatewaySecret string
+	// S3PublicEndpoint is the S3 endpoint as remote endpoints reach it, used
+	// in the gateway's presigned URLs. Default: S3Endpoint.
+	S3PublicEndpoint string
 }
 
 // defaultTaskMinRAMGb floors task memory at 128 MiB. Workflows compute memory
@@ -123,6 +132,9 @@ func Load() (*Config, error) {
 		S3Endpoint:                    envOr("CONQUEST_S3_ENDPOINT", ""),
 		S3Region:                      envOr("CONQUEST_S3_REGION", "us-east-1"),
 		FederationConfigFile:          strings.TrimSpace(os.Getenv("CONQUEST_FEDERATION_CONFIG")),
+		StorageGatewayURL:             strings.TrimSpace(os.Getenv("CONQUEST_STORAGE_GATEWAY_URL")),
+		StorageGatewaySecret:          os.Getenv("CONQUEST_STORAGE_GATEWAY_SECRET"),
+		S3PublicEndpoint:              strings.TrimSpace(os.Getenv("CONQUEST_S3_PUBLIC_ENDPOINT")),
 		K8sNamespace:                  envOr("CONQUEST_K8S_NAMESPACE", "conquest"),
 		LayoutVersion:                 envOr("CONQUEST_LAYOUT_VERSION", storage.LayoutVersion),
 		PageSizeMax:                   envIntOr("CONQUEST_PAGE_SIZE_MAX", 256),

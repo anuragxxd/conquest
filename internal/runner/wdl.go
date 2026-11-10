@@ -37,6 +37,9 @@ type WDLConfig struct {
 	S3Bucket             string
 	S3Region             string
 	AllowExternalImports bool
+	// TaskWorkDirPrefix is the S3 URI under which tasks exchange files when
+	// the run has no shared workspace; empty for shared-workspace runs.
+	TaskWorkDirPrefix string
 }
 
 func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
@@ -116,14 +119,26 @@ func RunWDL(ctx context.Context, cfg WDLConfig, log *slog.Logger) error {
 	cmd.Env = append(os.Environ(),
 		"CONQUEST_INTERNAL_TES_URL="+tesURL,
 		"CONQUEST_RUN_ID="+cfg.RunID,
-		// Force copy-input-files so that files are physically on the PVC at
-		// the paths the command string references.
-		"MINIWDL__FILE_IO__COPY_INPUT_FILES=true",
 		// Disable the download cache to avoid permission conflicts across
 		// concurrent runs sharing the same PVC.
 		"MINIWDL__DOWNLOAD_CACHE__PUT=false",
 		"MINIWDL__DOWNLOAD_CACHE__GET=false",
 	)
+	if cfg.TaskWorkDirPrefix != "" {
+		// No shared workspace: the plugin sends inputs to tasks and brings
+		// their work directories back through S3.
+		cmd.Env = append(cmd.Env,
+			"CONQUEST_WDL_TASK_STAGING=s3",
+			"CONQUEST_WDL_WORK_URI="+cfg.TaskWorkDirPrefix,
+			"CONQUEST_S3_ENDPOINT="+cfg.S3Endpoint,
+			"CONQUEST_S3_BUCKET="+cfg.S3Bucket,
+			"CONQUEST_S3_REGION="+cfg.S3Region,
+		)
+	} else {
+		// Force copy-input-files so that files are physically on the PVC at
+		// the paths the command string references.
+		cmd.Env = append(cmd.Env, "MINIWDL__FILE_IO__COPY_INPUT_FILES=true")
+	}
 
 	log.Info("executing miniwdl", "cmd", "miniwdl "+strings.Join(cmdArgs, " "))
 	runErr := cmd.Run()
