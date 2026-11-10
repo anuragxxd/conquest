@@ -20,6 +20,23 @@ from snakemake_interface_executor_plugins.settings import (
 
 from . import s3
 
+#: Seconds to wait for Conquest's TES API (CONQUEST_TES_CLIENT_TIMEOUT).
+#: Creating a task may forward it to a remote TES endpoint before Conquest
+#: answers, which can take up to that endpoint's request_timeout (30s by
+#: default); py-tes's default of 10s turned a slow endpoint into a
+#: WorkflowError that ended the run.
+DEFAULT_TES_CLIENT_TIMEOUT = 120
+
+
+def tes_client_timeout() -> int:
+    """The TES client timeout in seconds, from the environment."""
+    raw = os.environ.get("CONQUEST_TES_CLIENT_TIMEOUT", "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_TES_CLIENT_TIMEOUT
+    except ValueError:
+        return DEFAULT_TES_CLIENT_TIMEOUT
+    return value if value > 0 else DEFAULT_TES_CLIENT_TIMEOUT
+
 
 @dataclass
 class ExecutorSettings(ExecutorSettingsBase):
@@ -159,7 +176,7 @@ class Executor(RemoteExecutor):
         )
         if not tes_url:
             raise WorkflowError("TES URL is required")
-        self.tes_client = tes.HTTPClient(url=tes_url)
+        self.tes_client = tes.HTTPClient(url=tes_url, timeout=tes_client_timeout())
         self.s3_client = s3.make_client()
 
     def run_job(self, job: JobExecutorInterface):

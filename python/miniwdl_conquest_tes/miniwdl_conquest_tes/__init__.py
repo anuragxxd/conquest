@@ -52,6 +52,19 @@ __all__ = ["ConquestTESContainer"]
 
 # Default poll interval (seconds) between status checks against the TES API.
 _DEFAULT_POLL_INTERVAL = 5.0
+# Seconds to wait for Conquest's TES API (CONQUEST_TES_CLIENT_TIMEOUT). Creating
+# a task may forward it to a remote TES endpoint before Conquest answers, which
+# can take up to that endpoint's request_timeout (30s by default).
+_DEFAULT_TES_CLIENT_TIMEOUT = 120
+
+
+def _tes_client_timeout() -> int:
+    raw = os.environ.get("CONQUEST_TES_CLIENT_TIMEOUT", "").strip()
+    try:
+        value = int(raw) if raw else _DEFAULT_TES_CLIENT_TIMEOUT
+    except ValueError:
+        return _DEFAULT_TES_CLIENT_TIMEOUT
+    return value if value > 0 else _DEFAULT_TES_CLIENT_TIMEOUT
 
 # Maximum poll interval (seconds) — used as a ceiling for backoff.
 _MAX_POLL_INTERVAL = 30.0
@@ -208,7 +221,7 @@ class ConquestTESContainer(TaskContainer):
         if self._tes_client is None:
             self._tes_client = tes.HTTPClient(
                 url=self._tes_url,
-                timeout=30,
+                timeout=_tes_client_timeout(),
             )
         return self._tes_client
 
