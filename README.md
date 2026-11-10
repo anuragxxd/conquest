@@ -397,6 +397,34 @@ their tasks. Tasks go directly to `CANCELED` — the K8s Job is deleted
 immediately. Transitions are enforced in code; invalid transitions return an
 error.
 
+### Task dispatch
+
+Creating a TES task stores it as `QUEUED` and answers at once. A background
+dispatcher then claims the task, routes it, submits it to its backend and
+moves it to `INITIALIZING`; the reconciler follows it from there. A slow
+remote endpoint, or a Kubernetes API that times out, therefore delays tasks
+instead of failing the requests that create them, which workflow engines treat
+as fatal.
+
+- **Retries:** a submission that certainly created nothing (the Kubernetes API
+  failed, or every candidate endpoint refused) is retried. The delay starts at
+  2s and doubles up to 1 min, for `CONQUEST_DISPATCH_MAX_ATTEMPTS` attempts
+  (about 15 minutes); then the task is `SYSTEM_ERROR`. A submission that may
+  have created the task (an endpoint's answer was lost) is not retried, so
+  that the task never runs twice.
+- **Idempotent local submission:** Kubernetes Jobs are named after the task,
+  so a retried submission adopts a Job that an earlier attempt created.
+- **Several servers:** dispatchers claim tasks with `FOR UPDATE SKIP LOCKED`
+  and a lease, so several server replicas share the queue. A task whose
+  dispatcher stops mid-submission is claimed again when its lease expires.
+- **Cancellation:** cancelling a task that hasn't been dispatched needs no
+  backend. If it is being submitted at that moment, the dispatcher cancels the
+  submission when it finds the task `CANCELED`.
+- **Workers:** `CONQUEST_DISPATCH_WORKERS` submissions run at once, so one slow
+  endpoint doesn't hold up tasks bound elsewhere.
+
+`CONQUEST_ASYNC_DISPATCH=false` restores submitting before answering.
+
 ## Testing
 
 Tests use Go's standard `testing` package with no third-party frameworks. All
@@ -432,6 +460,9 @@ No config files.
 | `CONQUEST_POD_RUN_AS_USER`          | `1000`               | UID for runner/task containers    |
 | `CONQUEST_POD_RUN_AS_GROUP`         | `1000`               | GID and fsGroup for those pods    |
 | `CONQUEST_RECONCILER_INTERVAL`      | `5s`                 | How often reconcilers poll K8s    |
+| `CONQUEST_ASYNC_DISPATCH`           | `true`               | Submit TES tasks in the background |
+| `CONQUEST_DISPATCH_WORKERS`         | `8`                  | Task submissions in parallel      |
+| `CONQUEST_DISPATCH_MAX_ATTEMPTS`    | `20`                 | Submissions per task before SYSTEM_ERROR |
 | `CONQUEST_RUNNER_IMAGE`             | —                    | Default Nextflow runner image     |
 | `CONQUEST_WDL_RUNNER_IMAGE`         | —                    | Default WDL runner image          |
 | `CONQUEST_SNAKEMAKE_RUNNER_IMAGE`   | —                    | Default Snakemake runner image    |

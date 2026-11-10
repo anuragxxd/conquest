@@ -99,13 +99,21 @@ func (b *Backend) Submit(ctx context.Context, task *domain.Task) error {
 			b.log.Warn("endpoint refused task; trying next backend", "task_id", task.TaskID, "endpoint", name, "err", err)
 			continue
 		}
+		if backend.IsRetryable(err) {
+			// certainly not created (the local backend adopts a Job that
+			// an earlier attempt created): the task may be submitted again
+			rec.Attempts = append(rec.Attempts, Attempt{Backend: name, Outcome: "failed", Error: err.Error()})
+			return err
+		}
 		rec.Attempts = append(rec.Attempts, Attempt{Backend: name, Outcome: "unknown", Error: err.Error()})
 		if name != Local {
 			task.BackendName = name
 		}
 		return err
 	}
-	return fmt.Errorf("no backend accepted the task (tried %v)", rec.Candidates)
+	// every candidate refused: nothing was created, so a later attempt may
+	// find an endpoint that accepts it
+	return backend.Retryable(fmt.Errorf("no backend accepted the task (tried %v)", rec.Candidates))
 }
 
 // Refresh asks the backend that took the task.

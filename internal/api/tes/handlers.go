@@ -34,7 +34,17 @@ type Handler struct {
 	// gatewayID names this Conquest in Via headers of tasks it forwards;
 	// a task arriving with it has come back round a loop of gateways.
 	gatewayID string
+	// dispatcher submits created tasks in the background; nil submits
+	// them before answering (the behaviour before asynchronous dispatch).
+	dispatcher Notifier
 }
+
+// Notifier is told that tasks are waiting to be dispatched.
+type Notifier interface{ Notify() }
+
+// SetDispatcher makes task creation asynchronous: tasks are stored QUEUED
+// and the dispatcher routes and submits them.
+func (h *Handler) SetDispatcher(d Notifier) { h.dispatcher = d }
 
 // SetGatewayID enables loop detection for tasks forwarded by this Conquest.
 func (h *Handler) SetGatewayID(id string) { h.gatewayID = id }
@@ -218,7 +228,15 @@ func (h *Handler) createAndSubmitTask(w http.ResponseWriter, r *http.Request, re
 	event := domain.NewEvent(runID, task.TaskID, domain.EventTaskCreated, nil)
 	_ = h.events.Append(r.Context(), event)
 
-	// If a backend is configured, submit the task for execution.
+	// With a dispatcher, the task is submitted in the background: a slow
+	// or failing backend delays it instead of failing this request.
+	if h.dispatcher != nil {
+		h.dispatcher.Notify()
+		writeJSON(w, http.StatusOK, CreateTaskResponse{ID: task.TESTaskID})
+		return
+	}
+
+	// Otherwise submit it before answering.
 	if h.backend != nil {
 		if err := h.backend.Submit(r.Context(), task); err != nil {
 			if task.Route != nil || task.BackendName != "" {
@@ -397,7 +415,11 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.backend != nil {
+	// An undispatched task has nothing to cancel in a backend; if the
+	// dispatcher is submitting it right now, it cancels the submission when
+	// it finds the task CANCELED.
+	dispatched := !(task.State == domain.StateQueued && task.BackendRef == "")
+	if h.backend != nil && dispatched {
 		if err := h.backend.Cancel(r.Context(), task); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

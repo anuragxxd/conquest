@@ -46,8 +46,23 @@ func (b *Backend) Submit(ctx context.Context, task *domain.Task) error {
 	}
 
 	created, err := b.client.BatchV1().Jobs(b.cfg.Namespace).Create(ctx, job, metav1.CreateOptions{})
+	if k8serrors.IsAlreadyExists(err) {
+		// The Job's name is derived from the task, so it exists because an
+		// earlier attempt created it (e.g. the API answered too late). Adopt
+		// it if it is this task's.
+		existing, getErr := b.client.BatchV1().Jobs(b.cfg.Namespace).Get(ctx, job.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return backend.Retryable(fmt.Errorf("get existing k8s job %s: %w", job.Name, getErr))
+		}
+		if existing.Labels[LabelTaskID] != job.Labels[LabelTaskID] {
+			return fmt.Errorf("k8s job %s exists and belongs to another task", job.Name)
+		}
+		created, err = existing, nil
+	}
 	if err != nil {
-		return fmt.Errorf("create k8s job: %w", err)
+		// Creating again is safe: a Job created despite the error is
+		// adopted above.
+		return backend.Retryable(fmt.Errorf("create k8s job: %w", err))
 	}
 
 	task.BackendRef = created.Name

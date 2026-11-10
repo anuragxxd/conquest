@@ -117,6 +117,21 @@ func (r *Reconciler) reconcileTask(ctx context.Context, task *domain.Task) {
 		return
 	}
 
+	// A task that was submitted but whose dispatcher could not mark it
+	// INITIALIZING is still QUEUED; pass through INITIALIZING so that the
+	// backend's state is a valid next state.
+	if task.State == domain.StateQueued && task.BackendRef != "" && status.Phase != domain.StateQueued &&
+		domain.ValidateTaskTransition(task.State, status.Phase) != nil {
+		if err := r.tasks.UpdateState(ctx, task.TaskID, domain.StateQueued, domain.StateInitializing); err != nil {
+			r.log.Error("failed to mark submitted task INITIALIZING", "task_id", task.TESTaskID, "err", err)
+			return
+		}
+		task.State = domain.StateInitializing
+		if status.Phase == task.State {
+			return
+		}
+	}
+
 	// Validate the transition.
 	if err := domain.ValidateTaskTransition(task.State, status.Phase); err != nil {
 		r.log.Warn("invalid state transition from backend",

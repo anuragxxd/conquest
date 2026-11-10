@@ -85,7 +85,8 @@ func (s *stubBackend) Refresh(context.Context, *domain.Task) (*backend.BackendSt
 }
 
 type stubTaskStore struct {
-	calls []string
+	calls       []string
+	transitions []string
 }
 
 func (s *stubTaskStore) Create(context.Context, *domain.Task) error { return nil }
@@ -106,8 +107,9 @@ func (s *stubTaskStore) ListActiveTasks(context.Context, int) ([]*domain.Task, e
 	return nil, nil
 }
 
-func (s *stubTaskStore) UpdateState(context.Context, string, domain.State, domain.State) error {
+func (s *stubTaskStore) UpdateState(_ context.Context, _ string, from, to domain.State) error {
 	s.calls = append(s.calls, "UpdateState")
+	s.transitions = append(s.transitions, string(from)+"->"+string(to))
 	return nil
 }
 
@@ -139,4 +141,24 @@ func (s *stubEventStore) Append(_ context.Context, event *domain.Event) error {
 
 func (s *stubEventStore) ListByRunID(context.Context, string) ([]*domain.Event, error) {
 	return nil, nil
+}
+
+// A task whose dispatcher submitted it but could not mark it INITIALIZING
+// is still QUEUED; the backend's RUNNING must not be refused as an invalid
+// transition, or the task would never move on.
+func TestReconcileTask_MovesSubmittedQueuedTaskOn(t *testing.T) {
+	store := &stubTaskStore{}
+	be := &stubBackend{status: &backend.BackendStatus{Phase: domain.StateRunning}}
+	r := New(store, &stubEventStore{}, be, DefaultConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	task := domain.NewTask("run-1")
+	task.TESTaskID = task.TaskID
+	task.BackendRef = "conquest-task-1"
+
+	r.reconcileTask(context.Background(), task)
+
+	want := []string{"QUEUED->INITIALIZING", "INITIALIZING->RUNNING"}
+	if len(store.transitions) != 2 || store.transitions[0] != want[0] || store.transitions[1] != want[1] {
+		t.Fatalf("transitions = %v, want %v", store.transitions, want)
+	}
 }
