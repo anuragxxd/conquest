@@ -178,3 +178,26 @@ func TestLoad_RejectsInvalidWorkspaceMode(t *testing.T) {
 		t.Fatal("expected invalid workspace mode error")
 	}
 }
+
+func TestLoad_FloorsTaskMemoryByDefault(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_SNAKEMAKE_RUNNER_IMAGE", "example.com/conquest-snakemake:latest")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TaskMinRAMGb != 0.125 {
+		t.Fatalf("default task RAM floor = %v, want 0.125", cfg.TaskMinRAMGb)
+	}
+
+	t.Setenv("CONQUEST_TASK_MIN_RAM_GB", "0")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.TaskMinRAMGb != 0 {
+		t.Fatalf("task RAM floor with CONQUEST_TASK_MIN_RAM_GB=0 = %v, want 0", cfg.TaskMinRAMGb)
+	}
+}

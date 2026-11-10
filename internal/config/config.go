@@ -76,6 +76,13 @@ type Config struct {
 	PodRunAsGroup int64  // default: 1000; also the pod fsGroup
 }
 
+// defaultTaskMinRAMGb floors task memory at 128 MiB. Workflows compute memory
+// from input sizes (nf-core/sarek gives BWAMEM1_INDEX 244 KB for its test
+// genome), and the task's memory becomes its container's limit: below a few
+// MiB the container can't even start (exit 128). Set
+// CONQUEST_TASK_MIN_RAM_GB=0 to disable.
+const defaultTaskMinRAMGb = 0.125
+
 func Load() (*Config, error) {
 	nextflowRunnerImages := map[string]string{}
 	if raw := strings.TrimSpace(os.Getenv("CONQUEST_NEXTFLOW_RUNNER_IMAGES")); raw != "" {
@@ -141,7 +148,7 @@ func Load() (*Config, error) {
 		TaskMaxDiskGb:            envFloat64Or("CONQUEST_TASK_MAX_DISK_GB", 0),
 		TaskRejectOnMaxViolation: envBoolOr("CONQUEST_TASK_REJECT_ON_MAX_VIOLATION", false),
 		TaskMinCPUCores:          envIntOr("CONQUEST_TASK_MIN_CPU_CORES", 0),
-		TaskMinRAMGb:             envFloat64Or("CONQUEST_TASK_MIN_RAM_GB", 0),
+		TaskMinRAMGb:             envFloat64Or("CONQUEST_TASK_MIN_RAM_GB", defaultTaskMinRAMGb),
 		TaskMinDiskGb:            envFloat64Or("CONQUEST_TASK_MIN_DISK_GB", 0),
 
 		WorkspaceMode:         envOr("CONQUEST_WORKSPACE_MODE", "emptydir"),
