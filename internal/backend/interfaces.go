@@ -69,6 +69,11 @@ type BackendStatus struct {
 
 	// Logs is a snippet of stdout/stderr from the executor, if available.
 	Logs string
+
+	// Details is backend-specific state worth keeping with the task, e.g.
+	// the endpoint, remote task ID and system logs of a remote TES task.
+	// The reconciler stores it, with Reason, as the task's backend state.
+	Details map[string]any
 }
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,9 @@ type Task struct {
 	State              State             `json:"state"`
 	Resources          json.RawMessage   `json:"resources,omitempty"`            // TES resources (cpu, ram, disk, etc.)
 	TaskRequestPayload json.RawMessage   `json:"task_request_payload,omitempty"` // Full TES task body as submitted
-	BackendRef         string            `json:"backend_ref,omitempty"`          // K8s Job name or other backend ID
+	BackendName        string            `json:"backend_name,omitempty"`         // "" = local K8s backend, else a remote TES endpoint name
+	BackendRef         string            `json:"backend_ref,omitempty"`          // K8s Job name, or the remote endpoint's task ID
+	Route              json.RawMessage   `json:"route,omitempty"`                // routing decision record (see backend/routing)
 	BackendState       json.RawMessage   `json:"backend_state,omitempty"`        // Backend-specific state blob (K8s pod phase, etc.)
 	OutputLogs         json.RawMessage   `json:"output_logs,omitempty"`          // TES OutputFileLog entries from stage-out
 	CreatedAt          time.Time         `json:"created_at"`

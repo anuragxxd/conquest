@@ -178,11 +178,15 @@ func (r *Reconciler) reconcileTask(ctx context.Context, task *domain.Task) {
 	}
 
 	// Update backend state blob.
-	if status.PodName != "" {
-		bs, _ := json.Marshal(map[string]any{
-			"pod_name": status.PodName,
-			"reason":   status.Reason,
-		})
+	if status.PodName != "" || len(status.Details) > 0 {
+		state := map[string]any{"reason": status.Reason}
+		if status.PodName != "" {
+			state["pod_name"] = status.PodName
+		}
+		for k, v := range status.Details {
+			state[k] = v
+		}
+		bs, _ := json.Marshal(state)
 		if err := r.tasks.SetBackendState(ctx, task.TaskID, bs); err != nil {
 			r.log.Error("failed to persist task backend state",
 				"task_id", task.TESTaskID,

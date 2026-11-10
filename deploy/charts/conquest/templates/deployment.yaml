@@ -219,3 +219,22 @@ spec:
               value: {{ .Values.conquest.podSecurity.runAsUser | quote }}
             - name: CONQUEST_POD_RUN_AS_GROUP
               value: {{ .Values.conquest.podSecurity.runAsGroup | quote }}
+            {{- if .Values.federation.enabled }}
+            - name: CONQUEST_FEDERATION_CONFIG
+              value: /etc/conquest/federation/config.yaml
+            {{- end }}
+          {{- if .Values.federation.enabled }}
+          {{- with .Values.federation.credentialsSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          volumeMounts:
+            - name: federation
+              mountPath: /etc/conquest/federation
+              readOnly: true
+      volumes:
+        - name: federation
+          secret:
+            secretName: {{ include "conquest.fullname" . }}-federation
+          {{- end }}

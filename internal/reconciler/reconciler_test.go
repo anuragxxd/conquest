@@ -117,6 +117,9 @@ func (s *stubTaskStore) SetExitCode(context.Context, string, int32) error {
 }
 
 func (s *stubTaskStore) SetBackendRef(context.Context, string, string) error { return nil }
+func (s *stubTaskStore) SetBackendAssignment(context.Context, string, string, string, json.RawMessage) error {
+	return nil
+}
 
 func (s *stubTaskStore) SetBackendState(context.Context, string, json.RawMessage) error {
 	s.calls = append(s.calls, "SetBackendState")
