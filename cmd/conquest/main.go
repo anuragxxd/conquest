@@ -30,6 +30,7 @@ import (
 	"github.com/anuragxxd/conquest/internal/backend/routing"
 	"github.com/anuragxxd/conquest/internal/config"
 	"github.com/anuragxxd/conquest/internal/controller"
+	"github.com/anuragxxd/conquest/internal/dispatcher"
 	"github.com/anuragxxd/conquest/internal/filer"
 	"github.com/anuragxxd/conquest/internal/objstore"
 	"github.com/anuragxxd/conquest/internal/reconciler"
@@ -325,6 +326,15 @@ func run(log *slog.Logger) error {
 	if tasks != nil {
 		rec := reconciler.New(taskStore, eventStore, tasks, recCfg, log)
 		go rec.Run(appCtx)
+
+		if cfg.AsyncDispatch {
+			dispCfg := dispatcher.DefaultConfig()
+			dispCfg.Workers = cfg.DispatchWorkers
+			dispCfg.MaxAttempts = cfg.DispatchMaxAttempts
+			disp := dispatcher.New(taskStore, taskStore, eventStore, tasks, dispCfg, log)
+			tesHandler.SetDispatcher(disp)
+			go disp.Run(appCtx)
+		}
 	}
 
 	if runBackend != nil {

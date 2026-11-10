@@ -7,6 +7,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/anuragxxd/conquest/internal/domain"
 )
@@ -53,6 +54,24 @@ type TaskStore interface {
 	SetBackendAssignment(ctx context.Context, taskID, backendName, ref string, route json.RawMessage) error
 	SetBackendState(ctx context.Context, taskID string, state json.RawMessage) error
 	SetOutputLogs(ctx context.Context, taskID string, logs json.RawMessage) error
+}
+
+// DispatchClaim is an undispatched task that a dispatcher has claimed.
+type DispatchClaim struct {
+	TaskID string
+	// Attempt counts submissions of the task, this one included (from 1).
+	Attempt int
+}
+
+// DispatchQueue hands undispatched tasks (QUEUED, no backend_ref) to
+// dispatchers. Claims are leases: a task whose dispatcher stops before
+// submitting it is claimed again once the lease expires.
+type DispatchQueue interface {
+	// ClaimForDispatch claims up to limit undispatched tasks, oldest
+	// first, that no live lease holds and whose retry delay has passed.
+	ClaimForDispatch(ctx context.Context, limit int, lease time.Duration) ([]DispatchClaim, error)
+	// DeferDispatch releases the claim and delays the next attempt.
+	DeferDispatch(ctx context.Context, taskID string, notBefore time.Time) error
 }
 
 // EventStore persists and queries domain events.

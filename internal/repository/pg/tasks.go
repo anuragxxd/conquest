@@ -124,6 +124,8 @@ func (s *TaskStore) ListActiveTasks(ctx context.Context, limit int) ([]*domain.T
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+taskColumns+` FROM tasks
 		WHERE state NOT IN ('COMPLETE','EXECUTOR_ERROR','SYSTEM_ERROR','CANCELED','PREEMPTED')
+			-- undispatched tasks belong to the dispatcher, not the reconciler
+			AND NOT (state = 'QUEUED' AND COALESCE(backend_ref, '') = '')
 		ORDER BY created_at ASC
 		LIMIT $1`, limit)
 	if err != nil {

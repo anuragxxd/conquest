@@ -39,6 +39,12 @@ type Config struct {
 	StorageSecretName             string
 	ImagePullSecrets              []string
 	ReconcilerInterval            time.Duration
+	// AsyncDispatch stores new TES tasks QUEUED and submits them from a
+	// background dispatcher (default true); false submits them before the
+	// create request is answered.
+	AsyncDispatch       bool
+	DispatchWorkers     int
+	DispatchMaxAttempts int
 
 	// Task-level resource policy (applies to both Nextflow and Snakemake).
 	TaskDefaultCPUCores      int
@@ -157,6 +163,9 @@ func Load() (*Config, error) {
 		StorageSecretName:             envOr("CONQUEST_STORAGE_SECRET_NAME", "storage-secrets"),
 		ImagePullSecrets:              envCSV("CONQUEST_IMAGE_PULL_SECRETS"),
 		ReconcilerInterval:            envDurationOr("CONQUEST_RECONCILER_INTERVAL", 5*time.Second),
+		AsyncDispatch:                 envBoolOr("CONQUEST_ASYNC_DISPATCH", true),
+		DispatchWorkers:               envIntOr("CONQUEST_DISPATCH_WORKERS", 8),
+		DispatchMaxAttempts:           envIntOr("CONQUEST_DISPATCH_MAX_ATTEMPTS", 20),
 
 		TaskDefaultCPUCores:      envIntOr("CONQUEST_TASK_DEFAULT_CPU_CORES", 1),
 		TaskDefaultRAMGb:         envFloat64Or("CONQUEST_TASK_DEFAULT_RAM_GB", 2),

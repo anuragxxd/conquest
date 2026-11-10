@@ -190,3 +190,31 @@ func TestTaskOnRemovedEndpointIsSystemError(t *testing.T) {
 		t.Errorf("cancel: %v", err)
 	}
 }
+
+func TestAllCandidatesRefusingIsRetryable(t *testing.T) {
+	b, local, funnel, tesk := setup(t, map[string]string{DataClassTag: "public"})
+	refused := func(name string) error {
+		return &remote.SubmitError{Endpoint: name, Refused: true, Err: errors.New("HTTP 503")}
+	}
+	tesk.submitErr, funnel.submitErr = refused("tesk-b"), refused("funnel-a")
+	local.submitErr = backend.Retryable(errors.New("etcdserver: request timed out"))
+	task := taskWith(nfTask)
+
+	err := b.Submit(context.Background(), task)
+
+	if !backend.IsRetryable(err) {
+		t.Fatalf("err = %v, want retryable: nothing was created", err)
+	}
+	if rec := record(t, task); rec.Attempts[len(rec.Attempts)-1].Outcome != "failed" {
+		t.Errorf("record = %+v", rec)
+	}
+}
+
+func TestUnknownOutcomeIsNotRetryable(t *testing.T) {
+	b, _, _, tesk := setup(t, map[string]string{DataClassTag: "public"})
+	tesk.submitErr = &remote.SubmitError{Endpoint: "tesk-b", Refused: false, Err: errors.New("HTTP 502")}
+
+	if err := b.Submit(context.Background(), taskWith(nfTask)); backend.IsRetryable(err) {
+		t.Fatalf("err = %v: a task that may exist on tesk-b must not be submitted again", err)
+	}
+}
