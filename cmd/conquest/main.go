@@ -164,6 +164,7 @@ func run(log *slog.Logger) error {
 
 	// Controller.
 	runCtrl := controller.NewRunController(runStore, taskStore, eventStore, layout, adapterRegistry, log)
+	runCtrl.SetRunOutputsMaxFiles(cfg.RunOutputsMaxFiles)
 	if artifactStore, err := newServerArtifactStore(cfg); err != nil {
 		log.Warn("workflow outputs artifact loading disabled", "err", err)
 	} else if artifactStore != nil {

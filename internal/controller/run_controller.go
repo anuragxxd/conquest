@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
@@ -69,7 +71,34 @@ type RunController struct {
 	runBackend  backend.RunBackend  // nil if no runner backend configured
 	taskBackend backend.TaskBackend // nil if no task backend configured
 	artifacts   objstore.Client
-	log         *slog.Logger
+	// maxOutputFiles caps the files listed as outputs of Nextflow and
+	// Snakemake runs; 0 disables the listing.
+	maxOutputFiles int
+	log            *slog.Logger
+}
+
+// DefaultRunOutputsMaxFiles is the default cap on the files listed as
+// outputs of a Nextflow or Snakemake run.
+const DefaultRunOutputsMaxFiles = 1000
+
+// OutputListing is the outputs object of Nextflow and Snakemake runs: the
+// files under the run's output prefix.
+type OutputListing struct {
+	// Files are sorted by path (byte order). For a truncated listing,
+	// they are the first files in that order.
+	Files []OutputFile `json:"files"`
+	// Truncated is true if the run has more files than the cap.
+	Truncated bool `json:"truncated"`
+}
+
+// OutputFile is one file of an OutputListing.
+type OutputFile struct {
+	// Path is relative to the run's output prefix, with "/" separators.
+	Path string `json:"path"`
+	// URL is the output prefix followed by Path, not percent-encoded.
+	URL string `json:"url"`
+	// Size is in bytes.
+	Size int64 `json:"size"`
 }
 
 // NewRunController creates a RunController.
@@ -82,13 +111,20 @@ func NewRunController(
 	log *slog.Logger,
 ) *RunController {
 	return &RunController{
-		runs:     runs,
-		tasks:    tasks,
-		events:   events,
-		layout:   layout,
-		adapters: adapters,
-		log:      log,
+		runs:           runs,
+		tasks:          tasks,
+		events:         events,
+		layout:         layout,
+		adapters:       adapters,
+		maxOutputFiles: DefaultRunOutputsMaxFiles,
+		log:            log,
 	}
+}
+
+// SetRunOutputsMaxFiles sets the cap on the files listed as outputs of
+// Nextflow and Snakemake runs; 0 disables the listing.
+func (c *RunController) SetRunOutputsMaxFiles(n int) {
+	c.maxOutputFiles = n
 }
 
 // SetRunBackend configures the run-level execution backend.
@@ -241,10 +277,20 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 	}
 
 	var outputs json.RawMessage
-	if c.artifacts != nil && run.WorkflowEngine == "wdl" {
+	switch {
+	case c.artifacts == nil:
+	case run.WorkflowEngine == "wdl":
 		outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
 		if err != nil {
 			c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
+		}
+	case (run.WorkflowEngine == "nextflow" || run.WorkflowEngine == "snakemake") &&
+		run.State.IsTerminal() && c.maxOutputFiles > 0:
+		// Listed only once the run has ended: GET /runs/{id} is polled
+		// while runs are active, and their outputs are still incomplete.
+		outputs, err = c.listOutputFiles(ctx, run.RunID)
+		if err != nil {
+			c.log.Warn("failed to list run output files", "run_id", run.RunID, "err", err)
 		}
 	}
 
@@ -381,6 +427,38 @@ func (c *RunController) persistSubmittedRun(ctx context.Context, run *domain.Run
 	run.BackendRef = backendRef
 	run.State = domain.StateInitializing
 	return nil
+}
+
+// listOutputFiles lists the files under the run's output prefix, up to
+// maxOutputFiles, as a JSON OutputListing. Directory markers (keys ending
+// in "/") are not files and are skipped.
+func (c *RunController) listOutputFiles(ctx context.Context, runID string) (json.RawMessage, error) {
+	prefix := c.layout.OutputsDir(runID)
+	prefixURI := c.layout.OutputsDirURI(runID)
+	listing := OutputListing{Files: []OutputFile{}}
+	err := c.artifacts.ListObjects(ctx, c.layout.Bucket, prefix, func(obj objstore.ObjectInfo) bool {
+		path, ok := strings.CutPrefix(obj.Key, prefix)
+		if !ok || path == "" || strings.HasSuffix(path, "/") {
+			return true
+		}
+		if len(listing.Files) == c.maxOutputFiles {
+			listing.Truncated = true
+			return false
+		}
+		listing.Files = append(listing.Files, OutputFile{Path: path, URL: prefixURI + path, Size: obj.Size})
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Stores list keys in byte order; sort anyway so that the documented
+	// order doesn't depend on the store.
+	sort.Slice(listing.Files, func(i, j int) bool { return listing.Files[i].Path < listing.Files[j].Path })
+	data, err := json.Marshal(listing)
+	if err != nil {
+		return nil, fmt.Errorf("marshal output listing: %w", err)
+	}
+	return data, nil
 }
 
 func (c *RunController) loadWorkflowOutputs(ctx context.Context, runID string) (json.RawMessage, error) {

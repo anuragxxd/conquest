@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/anuragxxd/conquest/internal/api/tes"
+	"github.com/anuragxxd/conquest/internal/objstore"
 )
 
 type putCall struct {
@@ -69,6 +70,16 @@ func (f *fakeObjstoreClient) ListPrefix(_ context.Context, bucket, prefix string
 	}
 	sort.Strings(keys)
 	return keys, nil
+}
+
+func (f *fakeObjstoreClient) ListObjects(ctx context.Context, bucket, prefix string, fn func(objstore.ObjectInfo) bool) error {
+	keys, _ := f.ListPrefix(ctx, bucket, prefix)
+	for _, key := range keys {
+		if !fn(objstore.ObjectInfo{Key: key, Size: int64(len(f.objects[bucket+"/"+key]))}) {
+			return nil
+		}
+	}
+	return nil
 }
 
 func TestExpandGlobPatterns(t *testing.T) {

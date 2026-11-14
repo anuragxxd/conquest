@@ -8,6 +8,8 @@ import (
 	"io"
 	"io/ioutil"
 	"log/slog"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
@@ -133,6 +135,183 @@ func TestGetRun_LoadsWorkflowOutputsForWDL(t *testing.T) {
 	}
 	if string(result.Outputs) == "" {
 		t.Fatal("expected workflow outputs to be loaded")
+	}
+}
+
+func newOutputsTestController(run *domain.Run, store *artifactStoreStub) *RunController {
+	ctrl := NewRunController(
+		&runStoreStub{getRun: run},
+		&taskStoreStub{},
+		&eventStoreStub{},
+		storage.Layout{Bucket: "conquest", Version: "v1"},
+		adapter.NewRegistry(),
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	ctrl.SetArtifactStore(store)
+	return ctrl
+}
+
+func outputObjects() map[string][]byte {
+	return map[string][]byte{
+		"conquest/v1/workflow-runs/run-123/outputs/multiqc/report.html": []byte("<html></html>"),
+		"conquest/v1/workflow-runs/run-123/outputs/counts/s 1#.tsv":     []byte("gene\t1\n"),
+		"conquest/v1/workflow-runs/run-123/outputs/counts/":             nil, // directory marker
+		"conquest/v1/workflow-runs/run-123/outputs/a.txt":               []byte("a"),
+		"conquest/v1/workflow-runs/run-123/logs/run.log":                []byte("log"),
+		"conquest/v1/workflow-runs/run-1234/outputs/other.txt":          []byte("other run"),
+	}
+}
+
+func TestGetRun_ListsOutputFilesForNextflowAndSnakemake(t *testing.T) {
+	for _, engine := range []string{"nextflow", "snakemake"} {
+		t.Run(engine, func(t *testing.T) {
+			run := &domain.Run{RunID: "run-123", WorkflowEngine: engine, State: domain.StateComplete}
+			ctrl := newOutputsTestController(run, &artifactStoreStub{objects: outputObjects()})
+
+			result, err := ctrl.GetRun(context.Background(), "run-123")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			want := `{"files":[` +
+				`{"path":"a.txt","url":"s3://conquest/v1/workflow-runs/run-123/outputs/a.txt","size":1},` +
+				`{"path":"counts/s 1#.tsv","url":"s3://conquest/v1/workflow-runs/run-123/outputs/counts/s 1#.tsv","size":7},` +
+				`{"path":"multiqc/report.html","url":"s3://conquest/v1/workflow-runs/run-123/outputs/multiqc/report.html","size":13}` +
+				`],"truncated":false}`
+			if string(result.Outputs) != want {
+				t.Fatalf("outputs =\n%s\nwant\n%s", result.Outputs, want)
+			}
+		})
+	}
+}
+
+func TestGetRun_ListsOutputFilesOfRunsThatFailed(t *testing.T) {
+	for _, state := range []domain.State{domain.StateExecutorError, domain.StateSystemError, domain.StateCanceled, domain.StatePreempted} {
+		run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: state}
+		ctrl := newOutputsTestController(run, &artifactStoreStub{objects: outputObjects()})
+
+		result, err := ctrl.GetRun(context.Background(), "run-123")
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", state, err)
+		}
+		if !bytes.Contains(result.Outputs, []byte(`"path":"a.txt"`)) {
+			t.Fatalf("%s: outputs = %s, want the listed files", state, result.Outputs)
+		}
+	}
+}
+
+func TestGetRun_ListsNoOutputFilesWhileRunActive(t *testing.T) {
+	for _, state := range []domain.State{domain.StateQueued, domain.StateInitializing, domain.StateRunning, domain.StatePaused, domain.StateCanceling} {
+		store := &artifactStoreStub{objects: outputObjects()}
+		run := &domain.Run{RunID: "run-123", WorkflowEngine: "snakemake", State: state}
+		ctrl := newOutputsTestController(run, store)
+
+		result, err := ctrl.GetRun(context.Background(), "run-123")
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", state, err)
+		}
+		if result.Outputs != nil || store.listed != 0 {
+			t.Fatalf("%s: outputs = %s, listed %d objects; want no listing", state, result.Outputs, store.listed)
+		}
+	}
+}
+
+func TestGetRun_ReportsEmptyOutputDirectory(t *testing.T) {
+	run := &domain.Run{RunID: "run-9", WorkflowEngine: "nextflow", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, &artifactStoreStub{objects: outputObjects()})
+
+	result, err := ctrl.GetRun(context.Background(), "run-9")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := `{"files":[],"truncated":false}`; string(result.Outputs) != want {
+		t.Fatalf("outputs = %s, want %s", result.Outputs, want)
+	}
+}
+
+func TestGetRun_CapsOutputFiles(t *testing.T) {
+	store := &artifactStoreStub{objects: outputObjects()}
+	run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, store)
+	ctrl.SetRunOutputsMaxFiles(2)
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var listing OutputListing
+	if err := json.Unmarshal(result.Outputs, &listing); err != nil {
+		t.Fatalf("parse outputs: %v", err)
+	}
+	if !listing.Truncated || len(listing.Files) != 2 {
+		t.Fatalf("outputs = %s, want 2 files and truncated", result.Outputs)
+	}
+	if listing.Files[0].Path != "a.txt" || listing.Files[1].Path != "counts/s 1#.tsv" {
+		t.Fatalf("outputs = %s, want the first 2 files by path", result.Outputs)
+	}
+	// The directory marker isn't a file; listing stops at the first file
+	// beyond the cap.
+	if store.listed != 4 {
+		t.Fatalf("listed %d objects, want 4", store.listed)
+	}
+}
+
+func TestGetRun_ExactlyMaxOutputFilesIsNotTruncated(t *testing.T) {
+	run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, &artifactStoreStub{objects: outputObjects()})
+	ctrl.SetRunOutputsMaxFiles(3)
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var listing OutputListing
+	if err := json.Unmarshal(result.Outputs, &listing); err != nil {
+		t.Fatalf("parse outputs: %v", err)
+	}
+	if listing.Truncated || len(listing.Files) != 3 {
+		t.Fatalf("outputs = %s, want 3 files, not truncated", result.Outputs)
+	}
+}
+
+func TestGetRun_ZeroMaxOutputFilesDisablesListing(t *testing.T) {
+	store := &artifactStoreStub{objects: outputObjects()}
+	run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, store)
+	ctrl.SetRunOutputsMaxFiles(0)
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Outputs != nil || store.listed != 0 {
+		t.Fatalf("outputs = %s, listed %d objects; want no listing", result.Outputs, store.listed)
+	}
+}
+
+func TestGetRun_OutputListingErrorLeavesOutputsEmpty(t *testing.T) {
+	store := &artifactStoreStub{objects: outputObjects(), listErr: errors.New("storage down")}
+	run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, store)
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Outputs != nil {
+		t.Fatalf("outputs = %s, want none", result.Outputs)
+	}
+}
+
+func TestGetRun_DoesNotListOutputFilesForWDL(t *testing.T) {
+	store := &artifactStoreStub{objects: outputObjects()}
+	run := &domain.Run{RunID: "run-123", WorkflowEngine: "wdl", State: domain.StateComplete}
+	ctrl := newOutputsTestController(run, store)
+
+	if _, err := ctrl.GetRun(context.Background(), "run-123"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if store.listed != 0 {
+		t.Fatalf("listed %d objects for a WDL run, want 0", store.listed)
 	}
 }
 
@@ -262,6 +441,8 @@ func (s *eventStoreStub) ListByRunID(context.Context, string) ([]*domain.Event, 
 
 type artifactStoreStub struct {
 	objects map[string][]byte
+	listErr error
+	listed  int // objects passed to ListObjects callbacks
 }
 
 var _ objstore.Client = (*artifactStoreStub)(nil)
@@ -279,4 +460,25 @@ func (s *artifactStoreStub) Delete(context.Context, string, string) error       
 func (s *artifactStoreStub) Exists(context.Context, string, string) (bool, error)        { return false, nil }
 func (s *artifactStoreStub) ListPrefix(context.Context, string, string) ([]string, error) {
 	return nil, nil
+}
+
+func (s *artifactStoreStub) ListObjects(_ context.Context, bucket, prefix string, fn func(objstore.ObjectInfo) bool) error {
+	if s.listErr != nil {
+		return s.listErr
+	}
+	var keys []string
+	for fullKey := range s.objects {
+		key, ok := strings.CutPrefix(fullKey, bucket+"/")
+		if ok && strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		s.listed++
+		if !fn(objstore.ObjectInfo{Key: key, Size: int64(len(s.objects[bucket+"/"+key]))}) {
+			return nil
+		}
+	}
+	return nil
 }

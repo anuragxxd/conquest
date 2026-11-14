@@ -201,3 +201,35 @@ func TestLoad_FloorsTaskMemoryByDefault(t *testing.T) {
 		t.Fatalf("task RAM floor with CONQUEST_TASK_MIN_RAM_GB=0 = %v, want 0", cfg.TaskMinRAMGb)
 	}
 }
+
+func TestLoad_RunOutputsMaxFiles(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RunOutputsMaxFiles != 1000 {
+		t.Fatalf("RunOutputsMaxFiles = %d, want 1000", cfg.RunOutputsMaxFiles)
+	}
+
+	t.Setenv("CONQUEST_RUN_OUTPUTS_MAX_FILES", "0")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RunOutputsMaxFiles != 0 {
+		t.Fatalf("RunOutputsMaxFiles = %d, want 0", cfg.RunOutputsMaxFiles)
+	}
+}
+
+func TestLoad_RejectsNegativeRunOutputsMaxFiles(t *testing.T) {
+	t.Setenv("CONQUEST_POSTGRES_DSN", "postgres://example")
+	t.Setenv("CONQUEST_S3_BUCKET", "conquest")
+	t.Setenv("CONQUEST_RUN_OUTPUTS_MAX_FILES", "-1")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected negative CONQUEST_RUN_OUTPUTS_MAX_FILES to be rejected")
+	}
+}

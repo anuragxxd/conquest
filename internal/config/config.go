@@ -45,6 +45,10 @@ type Config struct {
 	AsyncDispatch       bool
 	DispatchWorkers     int
 	DispatchMaxAttempts int
+	// RunOutputsMaxFiles caps the files that GET /runs/{id} lists as
+	// outputs of Nextflow and Snakemake runs (default 1000); 0 disables
+	// the listing.
+	RunOutputsMaxFiles int
 
 	// Task-level resource policy (applies to both Nextflow and Snakemake).
 	TaskDefaultCPUCores      int
@@ -166,6 +170,7 @@ func Load() (*Config, error) {
 		AsyncDispatch:                 envBoolOr("CONQUEST_ASYNC_DISPATCH", true),
 		DispatchWorkers:               envIntOr("CONQUEST_DISPATCH_WORKERS", 8),
 		DispatchMaxAttempts:           envIntOr("CONQUEST_DISPATCH_MAX_ATTEMPTS", 20),
+		RunOutputsMaxFiles:            envIntOr("CONQUEST_RUN_OUTPUTS_MAX_FILES", 1000),
 
 		TaskDefaultCPUCores:      envIntOr("CONQUEST_TASK_DEFAULT_CPU_CORES", 1),
 		TaskDefaultRAMGb:         envFloat64Or("CONQUEST_TASK_DEFAULT_RAM_GB", 2),
@@ -216,6 +221,9 @@ func Load() (*Config, error) {
 	}
 	if c.SnakemakeDefaultDiskMB <= 0 {
 		return nil, fmt.Errorf("CONQUEST_SNAKEMAKE_DEFAULT_DISK_MB must be greater than zero")
+	}
+	if c.RunOutputsMaxFiles < 0 {
+		return nil, fmt.Errorf("CONQUEST_RUN_OUTPUTS_MAX_FILES must not be negative")
 	}
 	if c.RunnerEphemeralStorageRequest == "" {
 		return nil, fmt.Errorf("CONQUEST_RUNNER_EPHEMERAL_STORAGE_REQUEST is required")
