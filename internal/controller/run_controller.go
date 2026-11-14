@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
@@ -277,20 +276,22 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 	}
 
 	var outputs json.RawMessage
-	switch {
-	case c.artifacts == nil:
-	case run.WorkflowEngine == "wdl":
-		outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
-		if err != nil {
-			c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
-		}
-	case (run.WorkflowEngine == "nextflow" || run.WorkflowEngine == "snakemake") &&
-		run.State.IsTerminal() && c.maxOutputFiles > 0:
-		// Listed only once the run has ended: GET /runs/{id} is polled
-		// while runs are active, and their outputs are still incomplete.
-		outputs, err = c.listOutputFiles(ctx, run.RunID)
-		if err != nil {
-			c.log.Warn("failed to list run output files", "run_id", run.RunID, "err", err)
+	if c.artifacts != nil {
+		switch run.WorkflowEngine {
+		case "wdl":
+			outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
+			if err != nil {
+				c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
+			}
+		case "nextflow", "snakemake":
+			// Listed only once the run has ended: GET /runs/{id} is polled
+			// while runs are active, and their outputs are still incomplete.
+			if run.State.IsTerminal() && c.maxOutputFiles > 0 {
+				outputs, err = c.listOutputFiles(ctx, run.RunID)
+				if err != nil {
+					c.log.Warn("failed to list run output files", "run_id", run.RunID, "err", err)
+				}
+			}
 		}
 	}
 
@@ -451,9 +452,8 @@ func (c *RunController) listOutputFiles(ctx context.Context, runID string) (json
 	if err != nil {
 		return nil, err
 	}
-	// Stores list keys in byte order; sort anyway so that the documented
-	// order doesn't depend on the store.
-	sort.Slice(listing.Files, func(i, j int) bool { return listing.Files[i].Path < listing.Files[j].Path })
+	// ListObjects yields keys in byte order, so the files are sorted by
+	// path and a truncated listing holds the first ones.
 	data, err := json.Marshal(listing)
 	if err != nil {
 		return nil, fmt.Errorf("marshal output listing: %w", err)

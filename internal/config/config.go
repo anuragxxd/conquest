@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anuragxxd/conquest/internal/controller"
 	"github.com/anuragxxd/conquest/internal/storage"
 )
 
@@ -170,7 +171,7 @@ func Load() (*Config, error) {
 		AsyncDispatch:                 envBoolOr("CONQUEST_ASYNC_DISPATCH", true),
 		DispatchWorkers:               envIntOr("CONQUEST_DISPATCH_WORKERS", 8),
 		DispatchMaxAttempts:           envIntOr("CONQUEST_DISPATCH_MAX_ATTEMPTS", 20),
-		RunOutputsMaxFiles:            envIntOr("CONQUEST_RUN_OUTPUTS_MAX_FILES", 1000),
+		RunOutputsMaxFiles:            envIntOr("CONQUEST_RUN_OUTPUTS_MAX_FILES", controller.DefaultRunOutputsMaxFiles),
 
 		TaskDefaultCPUCores:      envIntOr("CONQUEST_TASK_DEFAULT_CPU_CORES", 1),
 		TaskDefaultRAMGb:         envFloat64Or("CONQUEST_TASK_DEFAULT_RAM_GB", 2),

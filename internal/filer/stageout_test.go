@@ -73,7 +73,10 @@ func (f *fakeObjstoreClient) ListPrefix(_ context.Context, bucket, prefix string
 }
 
 func (f *fakeObjstoreClient) ListObjects(ctx context.Context, bucket, prefix string, fn func(objstore.ObjectInfo) bool) error {
-	keys, _ := f.ListPrefix(ctx, bucket, prefix)
+	keys, err := f.ListPrefix(ctx, bucket, prefix)
+	if err != nil {
+		return err
+	}
 	for _, key := range keys {
 		if !fn(objstore.ObjectInfo{Key: key, Size: int64(len(f.objects[bucket+"/"+key]))}) {
 			return nil

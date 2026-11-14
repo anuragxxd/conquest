@@ -248,8 +248,9 @@ func TestGetRun_CapsOutputFiles(t *testing.T) {
 	if listing.Files[0].Path != "a.txt" || listing.Files[1].Path != "counts/s 1#.tsv" {
 		t.Fatalf("outputs = %s, want the first 2 files by path", result.Outputs)
 	}
-	// The directory marker isn't a file; listing stops at the first file
-	// beyond the cap.
+	// In key order, the fixture yields a.txt, counts/ (a directory marker,
+	// not a file), counts/s 1#.tsv and multiqc/report.html: listing stops
+	// at the first file beyond the cap, the 4th object.
 	if store.listed != 4 {
 		t.Fatalf("listed %d objects, want 4", store.listed)
 	}
