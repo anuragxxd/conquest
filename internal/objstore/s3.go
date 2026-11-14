@@ -101,7 +101,9 @@ func (c *S3Client) ListObjects(ctx context.Context, bucket, prefix string, fn fu
 			return nil
 		}
 	}
-	return nil
+	// The iterator ends silently when ctx is cancelled; don't pass a
+	// partial listing off as complete.
+	return ctx.Err()
 }
 
 // Presign returns a URL that performs method (GET, HEAD or PUT) on the

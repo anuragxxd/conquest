@@ -12,6 +12,18 @@ import (
 	"time"
 )
 
+func TestS3Client_ListObjectsReportsCancellation(t *testing.T) {
+	srv := httptest.NewServer(&fakeListServer{objects: []ObjectInfo{{Key: "a", Size: 1}}})
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := newTestS3Client(t, srv).ListObjects(ctx, "conquest", "", func(ObjectInfo) bool { return true })
+	if err == nil {
+		t.Fatal("expected an error for a cancelled listing")
+	}
+}
+
 func TestS3Client_ListObjectsStoppedEarlyLeaksNoGoroutines(t *testing.T) {
 	fake := &fakeListServer{objects: []ObjectInfo{
 		{Key: "a", Size: 1}, {Key: "b", Size: 1}, {Key: "c", Size: 1}, {Key: "d", Size: 1},
