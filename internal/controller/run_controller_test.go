@@ -303,6 +303,46 @@ func TestGetRun_OutputListingErrorLeavesOutputsEmpty(t *testing.T) {
 	}
 }
 
+func TestGetRun_ListsOutputFilesUnderStoredOutputPrefix(t *testing.T) {
+	// A run submitted under another bucket or layout version keeps the
+	// output prefix it was submitted with.
+	store := &artifactStoreStub{objects: map[string][]byte{
+		"old-bucket/v0/workflow-runs/run-123/outputs/x.txt": []byte("xy"),
+	}}
+	run := &domain.Run{
+		RunID:          "run-123",
+		WorkflowEngine: "snakemake",
+		State:          domain.StateComplete,
+		OutputPrefix:   "s3://old-bucket/v0/workflow-runs/run-123/outputs/",
+	}
+	ctrl := newOutputsTestController(run, store)
+
+	result, err := ctrl.GetRun(context.Background(), "run-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `{"files":[{"path":"x.txt","url":"s3://old-bucket/v0/workflow-runs/run-123/outputs/x.txt","size":2}],"truncated":false}`
+	if string(result.Outputs) != want {
+		t.Fatalf("outputs = %s, want %s", result.Outputs, want)
+	}
+}
+
+func TestGetRun_InvalidStoredOutputPrefixLeavesOutputsEmpty(t *testing.T) {
+	for _, prefix := range []string{"https://example.org/outputs/", "s3://bucket-only", "s3:///key/", "s3://bucket/no-slash"} {
+		store := &artifactStoreStub{objects: outputObjects()}
+		run := &domain.Run{RunID: "run-123", WorkflowEngine: "nextflow", State: domain.StateComplete, OutputPrefix: prefix}
+		ctrl := newOutputsTestController(run, store)
+
+		result, err := ctrl.GetRun(context.Background(), "run-123")
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", prefix, err)
+		}
+		if result.Outputs != nil || store.listed != 0 {
+			t.Fatalf("%s: outputs = %s, listed %d; want no listing", prefix, result.Outputs, store.listed)
+		}
+	}
+}
+
 func TestGetRun_DoesNotListOutputFilesForWDL(t *testing.T) {
 	store := &artifactStoreStub{objects: outputObjects()}
 	run := &domain.Run{RunID: "run-123", WorkflowEngine: "wdl", State: domain.StateComplete}

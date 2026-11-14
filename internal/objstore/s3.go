@@ -88,10 +88,9 @@ func (c *S3Client) ListPrefix(ctx context.Context, bucket, prefix string) ([]str
 // store lists them (lexicographic for S3), and stops listing, without
 // fetching further pages, when fn returns false.
 func (c *S3Client) ListObjects(ctx context.Context, bucket, prefix string, fn func(ObjectInfo) bool) error {
-	// Cancelling ctx stops the SDK's listing goroutine.
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	for obj := range c.mc.ListObjects(ctx, bucket, minio.ListObjectsOptions{
+	// An iterator, not the channel of mc.ListObjects: leaving that loop
+	// early leaves the SDK's goroutine blocked on its next send.
+	for obj := range c.mc.ListObjectsIter(ctx, bucket, minio.ListObjectsOptions{
 		Prefix:    prefix,
 		Recursive: true,
 	}) {

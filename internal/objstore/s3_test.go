@@ -5,10 +5,37 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestS3Client_ListObjectsStoppedEarlyLeaksNoGoroutines(t *testing.T) {
+	fake := &fakeListServer{objects: []ObjectInfo{
+		{Key: "a", Size: 1}, {Key: "b", Size: 1}, {Key: "c", Size: 1}, {Key: "d", Size: 1},
+	}}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	client := newTestS3Client(t, srv)
+
+	// Warm up the HTTP client's connection goroutines.
+	_ = client.ListObjects(context.Background(), "conquest", "", func(ObjectInfo) bool { return false })
+	before := runtime.NumGoroutine()
+	for range 20 {
+		if err := client.ListObjects(context.Background(), "conquest", "", func(ObjectInfo) bool { return false }); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before+2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Fatalf("goroutines: %d before 20 stopped listings, %d after", before, after)
+	}
+}
 
 // fakeListServer answers S3 ListObjectsV2 requests with pages of
 // objects, two per page, and records the requests it got.

@@ -287,7 +287,7 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 			// Listed only once the run has ended: GET /runs/{id} is polled
 			// while runs are active, and their outputs are still incomplete.
 			if run.State.IsTerminal() && c.maxOutputFiles > 0 {
-				outputs, err = c.listOutputFiles(ctx, run.RunID)
+				outputs, err = c.listOutputFiles(ctx, run)
 				if err != nil {
 					c.log.Warn("failed to list run output files", "run_id", run.RunID, "err", err)
 				}
@@ -433,11 +433,19 @@ func (c *RunController) persistSubmittedRun(ctx context.Context, run *domain.Run
 // listOutputFiles lists the files under the run's output prefix, up to
 // maxOutputFiles, as a JSON OutputListing. Directory markers (keys ending
 // in "/") are not files and are skipped.
-func (c *RunController) listOutputFiles(ctx context.Context, runID string) (json.RawMessage, error) {
-	prefix := c.layout.OutputsDir(runID)
-	prefixURI := c.layout.OutputsDirURI(runID)
+func (c *RunController) listOutputFiles(ctx context.Context, run *domain.Run) (json.RawMessage, error) {
+	// The prefix the run was submitted with, which stays valid when the
+	// server's bucket or layout version changes later.
+	prefixURI := run.OutputPrefix
+	if prefixURI == "" {
+		prefixURI = c.layout.OutputsDirURI(run.RunID)
+	}
+	bucket, prefix, err := splitS3Prefix(prefixURI)
+	if err != nil {
+		return nil, err
+	}
 	listing := OutputListing{Files: []OutputFile{}}
-	err := c.artifacts.ListObjects(ctx, c.layout.Bucket, prefix, func(obj objstore.ObjectInfo) bool {
+	err = c.artifacts.ListObjects(ctx, bucket, prefix, func(obj objstore.ObjectInfo) bool {
 		path, ok := strings.CutPrefix(obj.Key, prefix)
 		if !ok || path == "" || strings.HasSuffix(path, "/") {
 			return true
@@ -459,6 +467,18 @@ func (c *RunController) listOutputFiles(ctx context.Context, runID string) (json
 		return nil, fmt.Errorf("marshal output listing: %w", err)
 	}
 	return data, nil
+}
+
+// splitS3Prefix splits s3://bucket/key/prefix/ into bucket and key prefix.
+func splitS3Prefix(uri string) (bucket, prefix string, err error) {
+	rest, ok := strings.CutPrefix(uri, "s3://")
+	if ok {
+		bucket, prefix, ok = strings.Cut(rest, "/")
+	}
+	if !ok || bucket == "" || prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return "", "", fmt.Errorf("output prefix %q is not of the form s3://<bucket>/<key prefix>/", uri)
+	}
+	return bucket, prefix, nil
 }
 
 func (c *RunController) loadWorkflowOutputs(ctx context.Context, runID string) (json.RawMessage, error) {

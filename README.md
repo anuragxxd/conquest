@@ -261,21 +261,26 @@ Conquest implements both GA4GH v1.1 specifications.
   }
   ```
 
-  `path` is relative to the output prefix, `url` is the output prefix
-  followed by `path` (not percent-encoded), and `size` is in bytes. Files
-  are sorted by `path` (byte order). At most `CONQUEST_RUN_OUTPUTS_MAX_FILES`
-  files are listed (1000 by default; `0` turns the listing off); if a run
-  has more, `files` holds the first ones in that order and `truncated` is
-  `true`. Runs that haven't ended have no `outputs`, nor do runs whose
-  files can't be listed (the error is logged).
+  The output prefix is the one the run was submitted with, so runs keep
+  their listing when the bucket or layout version changes later. `path` is
+  relative to the output prefix, `url` is the output prefix followed by
+  `path` (not percent-encoded), and `size` is in bytes. Files are in the
+  order the store lists keys, which is sorted by `path` (byte order) on S3
+  and MinIO. At most `CONQUEST_RUN_OUTPUTS_MAX_FILES` files are listed
+  (1000 by default; `0` turns the listing off); if a run has more, `files`
+  holds the first ones in that order and `truncated` is `true`. Runs that
+  haven't ended have no `outputs`, nor do runs whose files can't be listed
+  (the error is logged).
 
   What lands under the output prefix: for Nextflow, what the workflow
   publishes to `params.outdir`, which Conquest sets to the output prefix
-  unless the request sets `outdir` itself (files published elsewhere are
-  not listed); for Snakemake 8 and later, the final (not `temp()`) outputs
-  of the rules, at their paths relative to the workflow directory.
-  Snakemake 7 runs the workflow inside the runner pod and uploads no
-  outputs, so its listing is empty.
+  unless the request sets `outdir` itself; for Snakemake 8 and later, the
+  final (not `temp()`) outputs of the rules, at their paths relative to the
+  workflow directory. Snakemake 7 runs the workflow inside the runner pod
+  and uploads no outputs. An empty `files` list therefore doesn't mean
+  that a run produced nothing: its files may be elsewhere. Conquest
+  doesn't check an `outdir` set in a request, so a run that sets it to
+  another run's output prefix adds its files to that run's listing.
 
 **TES** is used internally by the workflow runners, but also exposed publicly:
 
