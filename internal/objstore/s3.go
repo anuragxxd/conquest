@@ -84,6 +84,28 @@ func (c *S3Client) ListPrefix(ctx context.Context, bucket, prefix string) ([]str
 	return keys, nil
 }
 
+// ListObjects calls fn for each object under prefix, in the order the
+// store lists them (lexicographic for S3), and stops listing, without
+// fetching further pages, when fn returns false.
+func (c *S3Client) ListObjects(ctx context.Context, bucket, prefix string, fn func(ObjectInfo) bool) error {
+	// An iterator, not the channel of mc.ListObjects: leaving that loop
+	// early leaves the SDK's goroutine blocked on its next send.
+	for obj := range c.mc.ListObjectsIter(ctx, bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	}) {
+		if obj.Err != nil {
+			return obj.Err
+		}
+		if !fn(ObjectInfo{Key: obj.Key, Size: obj.Size}) {
+			return nil
+		}
+	}
+	// The iterator ends silently when ctx is cancelled; don't pass a
+	// partial listing off as complete.
+	return ctx.Err()
+}
+
 // Presign returns a URL that performs method (GET, HEAD or PUT) on the
 // object without credentials until it expires. The URL names the endpoint
 // this client was created with, so create the client with the address the

@@ -241,6 +241,47 @@ Conquest implements both GA4GH v1.1 specifications.
 | `/ga4gh/wes/v1/runs/{id}/tasks`        | GET    | List tasks for a run       |
 | `/ga4gh/wes/v1/runs/{id}/tasks/{tid}`  | GET    | Get task details           |
 
+### Run outputs
+
+`outputs` of `GET /ga4gh/wes/v1/runs/{id}` depends on the engine:
+
+- **WDL:** the outputs that miniwdl reports, keyed by their names qualified
+  with the workflow name (e.g., `{"wf.report": "s3://…"}`).
+- **Nextflow and Snakemake:** the files under the run's output prefix
+  (`s3://<bucket>/<layout version>/workflow-runs/<id>/outputs/`), once the
+  run has ended (also for runs that failed or were cancelled, which may have
+  written only some of their files):
+
+  ```json
+  {
+    "files": [
+      {"path": "multiqc/multiqc_report.html", "url": "s3://conquest-workflows/v1/workflow-runs/<id>/outputs/multiqc/multiqc_report.html", "size": 1234567}
+    ],
+    "truncated": false
+  }
+  ```
+
+  The output prefix is the one the run was submitted with, so runs keep
+  their listing when the bucket or layout version changes later. `path` is
+  relative to the output prefix, `url` is the output prefix followed by
+  `path` (not percent-encoded), and `size` is in bytes. Files are in the
+  order the store lists keys, which is sorted by `path` (byte order) on S3
+  and MinIO. At most `CONQUEST_RUN_OUTPUTS_MAX_FILES` files are listed
+  (1000 by default; `0` turns the listing off); if a run has more, `files`
+  holds the first ones in that order and `truncated` is `true`. Runs that
+  haven't ended have no `outputs`, nor do runs whose files can't be listed
+  (the error is logged).
+
+  What lands under the output prefix: for Nextflow, what the workflow
+  publishes to `params.outdir`, which Conquest sets to the output prefix
+  unless the request sets `outdir` itself; for Snakemake 8 and later, the
+  final (not `temp()`) outputs of the rules, at their paths relative to the
+  workflow directory. Snakemake 7 runs the workflow inside the runner pod
+  and uploads no outputs. An empty `files` list therefore doesn't mean
+  that a run produced nothing: its files may be elsewhere. Conquest
+  doesn't check an `outdir` set in a request, so a run that sets it to
+  another run's output prefix adds its files to that run's listing.
+
 **TES** is used internally by the workflow runners, but also exposed publicly:
 
 | Endpoint                               | Method | Description     |
@@ -461,6 +502,7 @@ No config files.
 | `CONQUEST_POD_RUN_AS_GROUP`         | `1000`               | GID and fsGroup for those pods    |
 | `CONQUEST_RECONCILER_INTERVAL`      | `5s`                 | How often reconcilers poll K8s    |
 | `CONQUEST_ASYNC_DISPATCH`           | `true`               | Submit TES tasks in the background |
+| `CONQUEST_RUN_OUTPUTS_MAX_FILES`    | `1000`               | Files listed as outputs of Nextflow/Snakemake runs; `0` turns the listing off |
 | `CONQUEST_DISPATCH_WORKERS`         | `8`                  | Task submissions in parallel      |
 | `CONQUEST_DISPATCH_MAX_ATTEMPTS`    | `20`                 | Submissions per task before SYSTEM_ERROR |
 | `CONQUEST_RUNNER_IMAGE`             | —                    | Default Nextflow runner image     |

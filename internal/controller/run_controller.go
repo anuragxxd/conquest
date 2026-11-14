@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/anuragxxd/conquest/internal/adapter"
@@ -69,7 +70,34 @@ type RunController struct {
 	runBackend  backend.RunBackend  // nil if no runner backend configured
 	taskBackend backend.TaskBackend // nil if no task backend configured
 	artifacts   objstore.Client
-	log         *slog.Logger
+	// maxOutputFiles caps the files listed as outputs of Nextflow and
+	// Snakemake runs; 0 disables the listing.
+	maxOutputFiles int
+	log            *slog.Logger
+}
+
+// DefaultRunOutputsMaxFiles is the default cap on the files listed as
+// outputs of a Nextflow or Snakemake run.
+const DefaultRunOutputsMaxFiles = 1000
+
+// OutputListing is the outputs object of Nextflow and Snakemake runs: the
+// files under the run's output prefix.
+type OutputListing struct {
+	// Files are sorted by path (byte order). For a truncated listing,
+	// they are the first files in that order.
+	Files []OutputFile `json:"files"`
+	// Truncated is true if the run has more files than the cap.
+	Truncated bool `json:"truncated"`
+}
+
+// OutputFile is one file of an OutputListing.
+type OutputFile struct {
+	// Path is relative to the run's output prefix, with "/" separators.
+	Path string `json:"path"`
+	// URL is the output prefix followed by Path, not percent-encoded.
+	URL string `json:"url"`
+	// Size is in bytes.
+	Size int64 `json:"size"`
 }
 
 // NewRunController creates a RunController.
@@ -82,13 +110,20 @@ func NewRunController(
 	log *slog.Logger,
 ) *RunController {
 	return &RunController{
-		runs:     runs,
-		tasks:    tasks,
-		events:   events,
-		layout:   layout,
-		adapters: adapters,
-		log:      log,
+		runs:           runs,
+		tasks:          tasks,
+		events:         events,
+		layout:         layout,
+		adapters:       adapters,
+		maxOutputFiles: DefaultRunOutputsMaxFiles,
+		log:            log,
 	}
+}
+
+// SetRunOutputsMaxFiles sets the cap on the files listed as outputs of
+// Nextflow and Snakemake runs; 0 disables the listing.
+func (c *RunController) SetRunOutputsMaxFiles(n int) {
+	c.maxOutputFiles = n
 }
 
 // SetRunBackend configures the run-level execution backend.
@@ -241,10 +276,22 @@ func (c *RunController) GetRun(ctx context.Context, runID string) (*RunLog, erro
 	}
 
 	var outputs json.RawMessage
-	if c.artifacts != nil && run.WorkflowEngine == "wdl" {
-		outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
-		if err != nil {
-			c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
+	if c.artifacts != nil {
+		switch run.WorkflowEngine {
+		case "wdl":
+			outputs, err = c.loadWorkflowOutputs(ctx, run.RunID)
+			if err != nil {
+				c.log.Warn("failed to load workflow outputs artifact", "run_id", run.RunID, "err", err)
+			}
+		case "nextflow", "snakemake":
+			// Listed only once the run has ended: GET /runs/{id} is polled
+			// while runs are active, and their outputs are still incomplete.
+			if run.State.IsTerminal() && c.maxOutputFiles > 0 {
+				outputs, err = c.listOutputFiles(ctx, run)
+				if err != nil {
+					c.log.Warn("failed to list run output files", "run_id", run.RunID, "err", err)
+				}
+			}
 		}
 	}
 
@@ -381,6 +428,57 @@ func (c *RunController) persistSubmittedRun(ctx context.Context, run *domain.Run
 	run.BackendRef = backendRef
 	run.State = domain.StateInitializing
 	return nil
+}
+
+// listOutputFiles lists the files under the run's output prefix, up to
+// maxOutputFiles, as a JSON OutputListing. Directory markers (keys ending
+// in "/") are not files and are skipped.
+func (c *RunController) listOutputFiles(ctx context.Context, run *domain.Run) (json.RawMessage, error) {
+	// The prefix the run was submitted with, which stays valid when the
+	// server's bucket or layout version changes later.
+	prefixURI := run.OutputPrefix
+	if prefixURI == "" {
+		prefixURI = c.layout.OutputsDirURI(run.RunID)
+	}
+	bucket, prefix, err := splitS3Prefix(prefixURI)
+	if err != nil {
+		return nil, err
+	}
+	listing := OutputListing{Files: []OutputFile{}}
+	err = c.artifacts.ListObjects(ctx, bucket, prefix, func(obj objstore.ObjectInfo) bool {
+		path, ok := strings.CutPrefix(obj.Key, prefix)
+		if !ok || path == "" || strings.HasSuffix(path, "/") {
+			return true
+		}
+		if len(listing.Files) == c.maxOutputFiles {
+			listing.Truncated = true
+			return false
+		}
+		listing.Files = append(listing.Files, OutputFile{Path: path, URL: prefixURI + path, Size: obj.Size})
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	// ListObjects yields keys in byte order, so the files are sorted by
+	// path and a truncated listing holds the first ones.
+	data, err := json.Marshal(listing)
+	if err != nil {
+		return nil, fmt.Errorf("marshal output listing: %w", err)
+	}
+	return data, nil
+}
+
+// splitS3Prefix splits s3://bucket/key/prefix/ into bucket and key prefix.
+func splitS3Prefix(uri string) (bucket, prefix string, err error) {
+	rest, ok := strings.CutPrefix(uri, "s3://")
+	if ok {
+		bucket, prefix, ok = strings.Cut(rest, "/")
+	}
+	if !ok || bucket == "" || prefix == "" || !strings.HasSuffix(prefix, "/") {
+		return "", "", fmt.Errorf("output prefix %q is not of the form s3://<bucket>/<key prefix>/", uri)
+	}
+	return bucket, prefix, nil
 }
 
 func (c *RunController) loadWorkflowOutputs(ctx context.Context, runID string) (json.RawMessage, error) {

@@ -26,4 +26,14 @@ type Client interface {
 
 	// ListPrefix returns keys matching a prefix.
 	ListPrefix(ctx context.Context, bucket, prefix string) ([]string, error)
+
+	// ListObjects calls fn for each object whose key starts with prefix,
+	// in lexicographic (byte) order of keys, until fn returns false.
+	ListObjects(ctx context.Context, bucket, prefix string, fn func(ObjectInfo) bool) error
+}
+
+// ObjectInfo describes a listed object.
+type ObjectInfo struct {
+	Key  string
+	Size int64 // bytes
 }
