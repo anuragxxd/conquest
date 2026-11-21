@@ -9,15 +9,21 @@ on:
 permissions:
   contents: read
 
+# A new commit on a pull request cancels the pull request's runs in progress;
+# pushes to master each get their own group, so none is dropped
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: stable
           cache: true
@@ -44,11 +50,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Same Python as the Snakemake runner image (docker/smk-runner).
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -57,3 +63,24 @@ jobs:
 
       - name: pytest
         run: pytest -q python/tests python/miniwdl_conquest_tes/tests
+
+  # The one check to require in branch protection: it fails if any job above
+  # failed or was cancelled, so adding a job needs no change to the protection
+  # rules, only to `needs`
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [build-test, python-plugin]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Check results of all jobs
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ] && [ "$r" != "skipped" ]; then
+              exit 1
+            fi
+          done
