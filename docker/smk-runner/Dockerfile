@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS go-builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -12,7 +12,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /conquest ./cmd/conquest/
 
-FROM python:3.12-slim AS runner
+FROM python:3.15-slim AS runner
 
 ARG SNAKEMAKE_VERSION=9.17.3
 # Pinned rather than releases/latest. Snakemake is pip-installed into this
