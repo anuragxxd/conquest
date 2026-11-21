@@ -1,5 +1,7 @@
 # Conquest
 
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+
 Workflow execution service. Runs Nextflow, WDL, and Snakemake
 pipelines on Kubernetes through GA4GH-standard APIs.
 
@@ -519,3 +521,7 @@ for its claim.
 
 Design records that outlived their documents live there too — see
 [#33](https://github.com/anuragxxd/conquest/issues/33) for objectfs.
+
+## License
+
+Conquest is licensed under the [Apache License 2.0](LICENSE).
