@@ -1,5 +1,5 @@
 # ---- Build stage ----
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -16,14 +16,14 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /conquest ./cmd/conquest/
 
 # ---- Migrate binary ----
-FROM --platform=linux/amd64 alpine:3.21 AS migrate-dl
+FROM --platform=linux/amd64 alpine:3.24 AS migrate-dl
 RUN wget -qO /tmp/migrate.tar.gz \
     "https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz" \
     && tar -xzf /tmp/migrate.tar.gz -C /usr/local/bin/ \
     && chmod +x /usr/local/bin/migrate
 
 # ---- Runtime stage ----
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -u 1000 conquest

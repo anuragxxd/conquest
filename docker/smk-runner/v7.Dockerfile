@@ -9,7 +9,7 @@
 #     --platform linux/amd64 \
 #     -t registry.example.com/conquest/conquest-smk-7.32.4-runner:release-20260329 .
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS go-builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -23,7 +23,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o /conquest ./cmd/conquest/
 
-FROM python:3.11-slim
+FROM python:3.15-slim
 
 # Pin to SM7 — the last release before the v8 breaking changes.
 ARG SNAKEMAKE_VERSION=7.32.4

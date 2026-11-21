@@ -7,7 +7,7 @@
 # ---- Build conquest binary ----
 ARG NXF_BASE_IMAGE=docker.io/anurag1201/conquest-nf-runtime:nf-24.10.4
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS go-builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
