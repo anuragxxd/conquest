@@ -1,0 +1,8 @@
+# Code owners are requested for review on pull requests that change matching
+# files. To add owners for a path, add a line below the catch-all (the last
+# matching pattern wins), e.g. `/python/ @anuragxxd @<user>`. See
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Roles: @anuragxxd is the code owner; @uniqueg is the backup code owner.
+# Either owner's approval suffices. Keep both on every line.
+* @anuragxxd @uniqueg
